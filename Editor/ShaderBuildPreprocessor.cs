@@ -701,12 +701,7 @@ namespace UnityEditor.Rendering.Universal
             if (rendererRequirements.needsMainLightShadows)
             {
                 // Cascade count can be changed at runtime, so include both of them
-                
-                // ys custom start
-                // We know we always have cascades enabled, so get rid of the non-cascade variants
-                // shaderFeatures |= ShaderFeatures.MainLightShadows;
-                // ys custom end
-                
+                shaderFeatures |= ShaderFeatures.MainLightShadows;
                 shaderFeatures |= ShaderFeatures.MainLightShadowsCascade;
             }
 
@@ -798,11 +793,21 @@ namespace UnityEditor.Rendering.Universal
 
                 // Screen Space Ambient Occlusion (SSAO)...
                 // Removing the OFF variant requires every renderer to use SSAO. That is checked later.
-                // ys custom start
-                // Always enable SSAO render features
-                shaderFeatures |= ShaderFeatures.ScreenSpaceOcclusion;
-                shaderFeatures |= ShaderFeatures.ScreenSpaceOcclusionAfterOpaque;
-                // ys custom end
+                ScreenSpaceAmbientOcclusion ssaoFeature = rendererFeature as ScreenSpaceAmbientOcclusion;
+                if (ssaoFeature != null)
+                {
+                    ScreenSpaceAmbientOcclusionSettings ssaoSettings = ssaoFeature.settings;
+                    ssaoRendererFeatures.Add(ssaoSettings);
+
+                    // The feature is active (Tested a few lines above) so check for AfterOpaque
+                    if (ssaoSettings.AfterOpaque)
+                        shaderFeatures |= ShaderFeatures.ScreenSpaceOcclusionAfterOpaque;
+                    else
+                        shaderFeatures |= ShaderFeatures.ScreenSpaceOcclusion;
+
+                    // Otherwise the keyword will not be used
+                    continue;
+                }
 
                 // Decals...
                 DecalRendererFeature decal = rendererFeature as DecalRendererFeature;
@@ -970,12 +975,7 @@ namespace UnityEditor.Rendering.Universal
             // Shadows...
             // Main Light Shadows...
             spd.mainLightShadowsPrefilteringMode = PrefilteringModeMainLightShadows.Remove;
-
-            // ys custom start
-            // Also check MainLightShadowsCascade, because we're not declaring MainLightShadows anymore
-            if (IsFeatureEnabled(shaderFeatures, ShaderFeatures.MainLightShadows) || 
-                IsFeatureEnabled(shaderFeatures, ShaderFeatures.MainLightShadowsCascade))
-            // ys custom end
+            if (IsFeatureEnabled(shaderFeatures, ShaderFeatures.MainLightShadows))
             {
                 if (IsFeatureEnabled(shaderFeatures, ShaderFeatures.MainLightShadowsCascade))
                 {
@@ -1021,10 +1021,16 @@ namespace UnityEditor.Rendering.Universal
             spd.useLegacyLightmaps = IsFeatureEnabled(shaderFeatures, ShaderFeatures.UseLegacyLightmaps);
 
             // Screen Space Ambient Occlusion
-            // ys custom start
-            // Ignore specified filtering settings and force SSAO to on 
-            spd.screenSpaceOcclusionPrefilteringMode = PrefilteringMode.SelectOnly;
-            // ys custom end
+            spd.screenSpaceOcclusionPrefilteringMode = PrefilteringMode.Remove;
+            if (IsFeatureEnabled(shaderFeatures, ShaderFeatures.ScreenSpaceOcclusion))
+            {
+                // Remove the SSAO's OFF variant if Global Settings allow it and every renderer uses it.
+                if (stripUnusedVariants && everyRendererHasSSAO)
+                    spd.screenSpaceOcclusionPrefilteringMode = PrefilteringMode.SelectOnly;
+                // Otherwise we keep both
+                else
+                    spd.screenSpaceOcclusionPrefilteringMode = PrefilteringMode.Select;
+            }
 
             // SSAO shader keywords
             spd.stripSSAODepthNormals      = true;

@@ -24,14 +24,6 @@ namespace UnityEngine.Rendering.Universal
         /// Note that if you use this tonemapper all the grading operations will be done in the ACES color spaces for optimal precision and results.
         /// </summary>
         ACES, // ACES Filmic reference tonemapper (custom approximation)
-
-        
-        // ys custom start
-        /// <summary>
-        /// Use this option to apply a close approximation of the AgX tonemapper.
-        /// </summary>
-        AgX,
-        // ys custom end
     }
 
     /// <summary>
@@ -67,16 +59,6 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         ACES4000Nits = HDRRangeReduction.ACES4000Nits,
     }
-
-    // ys custom start
-    public enum AgXLook
-    {
-        Default,
-        Punchy,
-        Golden,
-        Custom
-    }
-    // ys custom end
 
     /// <summary>
     /// A volume component that holds settings for the tonemapping effect.
@@ -143,89 +125,12 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("The maximum brightness of the screen (in nits). This value is defined by the preset when using ACES Tonemap.")]
         public ClampedFloatParameter maxNits = new ClampedFloatParameter(1000.0f, 0.0f, 5000.0f);
 
-        // ys custom start
-        [Tooltip("AgX Look function, as specified in the AgX standard.")]
-        public AgXLookParameter agXLook = new AgXLookParameter(AgXLook.Default);
-
-        [Tooltip("Custom offset for the AgX Look function.")]
-        public Vector3Parameter agXCustomOffset = new Vector3Parameter(Vector3.zero);
-        
-        [Tooltip("Custom slope for the AgX Look function.")]
-        public Vector3Parameter agXCustomSlope = new Vector3Parameter(Vector3.one);
-
-        [Tooltip("Custom power for the AgX Look function.")]
-        public Vector3Parameter agXCustomPower = new Vector3Parameter(Vector3.one);
-        
-        [Tooltip("Custom saturation for the AgX Look function.")]
-        public ClampedFloatParameter agXCustomSaturation = new ClampedFloatParameter(1.0f, 0.0f, 5.0f);
-        // ys custom end
-
         /// <inheritdoc/>
         public bool IsActive() => mode.value != TonemappingMode.None;
 
         /// <inheritdoc/>
         [Obsolete("Unused #from(2023.1)", false)]
         public bool IsTileCompatible() => true;
-
-        // ys custom start
-        public Vector3 GetAgXOffset()
-        {
-            if (agXLook == AgXLook.Custom)
-            {
-                return agXCustomOffset.value;
-            }
-            
-            return Vector3.zero;
-        }
-
-        public Vector3 GetAgXSlope()
-        {
-            switch (agXLook.value)
-            {
-                default:
-                case AgXLook.Default:
-                    return Vector3.one;
-                case AgXLook.Punchy:
-                    return Vector3.one;
-                case AgXLook.Golden:
-                    return new Vector3(1.0f, 0.9f, 0.5f);
-                case AgXLook.Custom:
-                    return agXCustomSlope.value;
-            }
-        }
-
-        public Vector3 GetAgXPower()
-        {
-            switch (agXLook.value)
-            {
-                default:
-                case AgXLook.Default:
-                    return Vector3.one;
-                case AgXLook.Punchy:
-                    return new Vector3(1.35f, 1.35f, 1.35f);
-                case AgXLook.Golden:
-                    return new Vector3(0.8f, 0.8f, 0.8f);
-                case AgXLook.Custom:
-                    return agXCustomPower.value;
-            }
-        }
-
-        public float GetAgXSaturation()
-        {
-            switch (agXLook.value)
-            {
-                default:
-                case AgXLook.Default:
-                    return 1.0f;
-                case AgXLook.Punchy:
-                    return 1.4f;
-                case AgXLook.Golden:
-                    return 0.8f;
-                case AgXLook.Custom:
-                    return agXCustomSaturation.value;
-            }    
-        }
-        // ys custom end
     }
 
     /// <summary>
@@ -269,20 +174,4 @@ namespace UnityEngine.Rendering.Universal
         /// <param name="overrideState">The initial override state for the parameter.</param>
         public HDRACESPresetParameter(HDRACESPreset value, bool overrideState = false) : base(value, overrideState) { }
     }
-    
-    // ys custom start
-    /// <summary>
-    /// A <see cref="VolumeParameter"/> that contains a <see cref="AgXLook"/> value.
-    /// </summary>
-    [Serializable]
-    public sealed class AgXLookParameter : VolumeParameter<AgXLook>
-    {
-        /// <summary>
-        /// Creates a new <see cref="AgXLookParameter"/> instance.
-        /// </summary>
-        /// <param name="value">The initial value to store in the parameter.</param>
-        /// <param name="overrideState">The initial override state for the parameter.</param>
-        public AgXLookParameter(AgXLook value, bool overrideState = false) : base(value, overrideState) { }
-    }
-    // ys custom end
 }
