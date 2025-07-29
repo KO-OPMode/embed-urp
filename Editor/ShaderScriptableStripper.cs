@@ -475,8 +475,15 @@ namespace UnityEditor.Rendering.Universal
 
         internal bool StripUnusedFeatures_SoftShadows(ref ShaderStripTool<ShaderFeatures> stripTool)
         {
+            // ys custom start
+            // Get rid of the off variants -- we always want soft shadows (at least for now)
+
+            return stripTool.StripMultiCompile(m_SoftShadows, ShaderFeatures.SoftShadows);
+            
             // TODO: Strip off variants once we have global soft shadows option for forcing instead as support
-            return stripTool.StripMultiCompileKeepOffVariant(m_SoftShadows, ShaderFeatures.SoftShadows);
+            // return stripTool.StripMultiCompileKeepOffVariant(m_SoftShadows, ShaderFeatures.SoftShadows);
+            
+            // ys custom end
         }
 
         internal bool StripUnusedFeatures_SoftShadowsQualityLevels(ref IShaderScriptableStrippingData strippingData, ref ShaderStripTool<ShaderFeatures> stripTool)

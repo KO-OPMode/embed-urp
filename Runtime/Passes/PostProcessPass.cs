@@ -1967,6 +1967,13 @@ namespace UnityEngine.Rendering.Universal
             public static readonly int _UserLut = Shader.PropertyToID("_UserLut");
             public static readonly int _DownSampleScaleFactor = Shader.PropertyToID("_DownSampleScaleFactor");
 
+            // ys custom start
+            public static readonly int _AgXOffset = Shader.PropertyToID("_AgXOffset");
+            public static readonly int _AgXSlope = Shader.PropertyToID("_AgXSlope");
+            public static readonly int _AgXPower = Shader.PropertyToID("_AgXPower");
+            public static readonly int _AgXSaturation = Shader.PropertyToID("_AgXSaturation");
+            // ys custom end
+
             public static readonly int _FlareOcclusionRemapTex = Shader.PropertyToID("_FlareOcclusionRemapTex");
             public static readonly int _FlareOcclusionTex = Shader.PropertyToID("_FlareOcclusionTex");
             public static readonly int _FlareOcclusionIndex = Shader.PropertyToID("_FlareOcclusionIndex");
