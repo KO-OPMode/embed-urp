@@ -5,7 +5,7 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
         _MainTex("Diffuse", 2D) = "white" {}
         _MaskTex("Mask", 2D) = "white" {}
         _NormalMap("Normal Map", 2D) = "bump" {}
-        _ZWrite("ZWrite", Float) = 0
+        [MaterialToggle] _ZWrite("ZWrite", Float) = 0
 
         // Legacy properties. They're here so that materials using this shader can gracefully fallback to the legacy sprite shader.
         [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
@@ -21,7 +21,6 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
         Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
         Cull Off
         ZWrite [_ZWrite]
-        ZTest Off
 
         Pass
         {
@@ -36,6 +35,8 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
 
             #include_with_pragmas "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/ShapeLightShared.hlsl"
 
+            // GPU Instancing
+            #pragma multi_compile_instancing
             #pragma multi_compile _ DEBUG_DISPLAY SKINNED_SPRITE
 
             struct Attributes
@@ -97,6 +98,7 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 UNITY_SKINNED_VERTEX_COMPUTE(v);
 
+                SetUpSpriteInstanceProperties();
                 v.positionOS = UnityFlipSprite(v.positionOS, unity_SpriteProps.xy);
                 o.positionCS = TransformObjectToHClip(v.positionOS);
                 #if defined(DEBUG_DISPLAY)
@@ -130,8 +132,6 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
 
         Pass
         {
-            ZWrite Off
-
             Tags { "LightMode" = "NormalsRendering"}
 
             HLSLPROGRAM
@@ -141,6 +141,8 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
             #pragma vertex NormalsRenderingVertex
             #pragma fragment NormalsRenderingFragment
 
+            // GPU Instancing
+            #pragma multi_compile_instancing
             #pragma multi_compile _ SKINNED_SPRITE
 
             struct Attributes
@@ -148,6 +150,7 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
                 float3 positionOS   : POSITION;
                 float4 color        : COLOR;
                 float2 uv           : TEXCOORD0;
+                float3 normal       : NORMAL;
                 float4 tangent      : TANGENT;
                 UNITY_SKINNED_VERTEX_INPUTS
                 UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -181,11 +184,12 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 UNITY_SKINNED_VERTEX_COMPUTE(attributes);
 
+                SetUpSpriteInstanceProperties();
                 attributes.positionOS = UnityFlipSprite(attributes.positionOS, unity_SpriteProps.xy);
                 o.positionCS = TransformObjectToHClip(attributes.positionOS);
                 o.uv = attributes.uv;
-                o.color = attributes.color;
-                o.normalWS = -GetViewForwardDir();
+                o.color = attributes.color * _Color * unity_SpriteColor;
+                o.normalWS = TransformObjectToWorldDir(attributes.normal);
                 o.tangentWS = TransformObjectToWorldDir(attributes.tangent.xyz);
                 o.bitangentWS = cross(o.normalWS, o.tangentWS) * attributes.tangent.w;
                 return o;
@@ -218,6 +222,8 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
             #pragma vertex UnlitVertex
             #pragma fragment UnlitFragment
 
+            // GPU Instancing
+            #pragma multi_compile_instancing
             #pragma multi_compile _ DEBUG_DISPLAY SKINNED_SPRITE
 
             struct Attributes
@@ -256,6 +262,7 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
                 UNITY_SKINNED_VERTEX_COMPUTE(attributes);
 
+                SetUpSpriteInstanceProperties();
                 attributes.positionOS = UnityFlipSprite( attributes.positionOS, unity_SpriteProps.xy);
                 o.positionCS = TransformObjectToHClip(attributes.positionOS);
                 #if defined(DEBUG_DISPLAY)
@@ -290,6 +297,4 @@ Shader "Universal Render Pipeline/2D/Sprite-Lit-Default"
             ENDHLSL
         }
     }
-
-    Fallback "Sprites/Default"
 }

@@ -20,21 +20,42 @@ float3 UnityFlipSprite( in float3 pos, in float2 flip )
     return float3(pos.xy * flip, pos.z);
 }
 
-float3 UnitySkinSprite( in float3 positionOS, in float4 blendIndices, in float4 blendWeights, in float offset )
+float3 UnitySkinSprite( in float3 positionOS, in uint4 blendIndices, in float4 blendWeights, in float offset )
 {
-#if defined(SKINNED_SPRITE)
     float4 vertex = float4(positionOS, 1.0);
+
+#if defined(SKINNED_SPRITE)
+    UNITY_BRANCH
     if (offset >= 0)
     {
         vertex =
-            mul(_SpriteBoneTransforms[offset + blendIndices.x], vertex) * blendWeights.x +
-            mul(_SpriteBoneTransforms[offset + blendIndices.y], vertex) * blendWeights.y +
-            mul(_SpriteBoneTransforms[offset + blendIndices.z], vertex) * blendWeights.z +
-            mul(_SpriteBoneTransforms[offset + blendIndices.w], vertex) * blendWeights.w;
+            mul(_SpriteBoneTransforms[uint(offset) + blendIndices.x], vertex) * blendWeights.x +
+            mul(_SpriteBoneTransforms[uint(offset) + blendIndices.y], vertex) * blendWeights.y +
+            mul(_SpriteBoneTransforms[uint(offset) + blendIndices.z], vertex) * blendWeights.z +
+            mul(_SpriteBoneTransforms[uint(offset) + blendIndices.w], vertex) * blendWeights.w;
     }
+#endif // SKINNED_SPRITE
+
     return vertex.xyz;
+}
+
+#ifdef UNITY_INSTANCING_ENABLED
+    UNITY_INSTANCING_BUFFER_START(PerDrawSprite)
+        // SpriteRenderer.Color while Non-Batched/Instanced.
+        UNITY_DEFINE_INSTANCED_PROP(float4, unity_SpriteRendererColorArray)
+        // this could be smaller but that's how bit each entry is regardless of type
+        UNITY_DEFINE_INSTANCED_PROP(float2, unity_SpriteFlipArray)            
+    UNITY_INSTANCING_BUFFER_END(PerDrawSprite)
+
+    #define unity_SpriteColor  UNITY_ACCESS_INSTANCED_PROP(PerDrawSprite, unity_SpriteRendererColorArray)
+    #define unity_SpriteFlip   UNITY_ACCESS_INSTANCED_PROP(PerDrawSprite, unity_SpriteFlipArray)
+#endif // instancing
+
+void SetUpSpriteInstanceProperties()
+{
+#ifdef UNITY_INSTANCING_ENABLED
+    unity_SpriteProps.xy = unity_SpriteFlip;
 #endif
-    return positionOS;
 }
 
 #endif
