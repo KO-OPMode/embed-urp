@@ -17,6 +17,7 @@ namespace UnityEngine.Rendering.Universal.Internal
         private int renderTargetWidth;
         private int renderTargetHeight;
         private bool m_CreateEmptyShadowmap;
+        private bool m_SetKeywordForEmptyShadowmap;
         private bool m_EmptyShadowmapNeedsClear;
         private bool m_IssuedMessageAboutShadowSlicesTooMany;
         private bool m_IssuedMessageAboutShadowMapsRescale;
@@ -55,6 +56,7 @@ namespace UnityEngine.Rendering.Universal.Internal
         private static readonly Vector4 c_DefaultShadowParams = new (0, 0, 0, -1);
         private static Vector4 s_EmptyAdditionalShadowFadeParams;
         private static Vector4[] s_EmptyAdditionalLightIndexToShadowParams;
+        private static bool isAdditionalShadowParamsDirty;
 
         // Classes
         private static class AdditionalShadowsConstantBuffer
@@ -74,6 +76,7 @@ namespace UnityEngine.Rendering.Universal.Internal
         {
             internal int shadowmapID;
             internal bool emptyShadowmap;
+            internal bool setKeywordForEmptyShadowmap;
             internal bool useStructuredBuffer;
             internal bool stripShadowsOffVariants;
             internal Matrix4x4 viewMatrix;
@@ -338,11 +341,19 @@ namespace UnityEngine.Rendering.Universal.Internal
         {
             using var profScope = new ProfilingScope(m_ProfilingSetupSampler);
 
-            if (!shadowData.additionalLightShadowsEnabled)
+            bool shadowsEnabled = shadowData.additionalLightShadowsEnabled;
+            if (!shadowsEnabled)
+            {
+                // If (realtime) shadows are disabled, but any additional light casts baked shadows, we need to do empty rendering to setup the _MainLightShadowParams uniform,
+                // which is also used when sampling baked shadows. This allows for using baked shadows even when realtime shadows are completely disabled.
+                if (AnyAdditionalLightHasMixedShadows(lightData))
+                    return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, shadowsEnabled, lightData, shadowData);
+
                 return false;
+            }
 
             if (!shadowData.supportsAdditionalLightShadows)
-                return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, lightData, shadowData);
+                return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, shadowsEnabled, lightData, shadowData);
 
             Clear();
 
@@ -438,14 +449,17 @@ namespace UnityEngine.Rendering.Universal.Internal
             short additionalLightCount = 0;
             short validShadowCastingLightsCount = 0;
             bool supportsSoftShadows = shadowData.supportsSoftShadows;
-            bool isDeferred = ((UniversalRenderer)cameraData.renderer).renderingModeActual == RenderingMode.Deferred;
+            UniversalRenderer universalRenderer = (UniversalRenderer)cameraData.renderer;
+            bool isDeferred = universalRenderer.renderingModeActual == RenderingMode.Deferred;
+            bool shadowTransparentReceive = universalRenderer.shadowTransparentReceive;
+            bool hasForwardShadowPass = !isDeferred || shadowTransparentReceive;
             for (int visibleLightIndex = 0; visibleLightIndex < visibleLights.Length; ++visibleLightIndex)
             {
                 // Skip main directional light as it is not packed into the shadow atlas
                 if (visibleLightIndex == lightData.mainLightIndex)
                     continue;
 
-                short lightIndexToUse = isDeferred ? validShadowCastingLightsCount : additionalLightCount++;
+                short lightIndexToUse = !hasForwardShadowPass ? validShadowCastingLightsCount : additionalLightCount++;
 
                 // We need to always set these indices, even if the light is not shadow casting or doesn't fit in the shadow slices (UUM-46577)
                 m_VisibleLightIndexToAdditionalLightIndex[visibleLightIndex] = lightIndexToUse;
@@ -561,7 +575,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             // Lights that need to be rendered in the shadow map atlas
             if (validShadowCastingLightsCount == 0)
-                return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, lightData, shadowData);
+                return SetupForEmptyRendering(cameraData.renderer.stripShadowsOffVariants, shadowsEnabled, lightData, shadowData);
 
             int shadowCastingLightsBufferCount = m_ShadowSliceToAdditionalLightIndex.Count;
 
@@ -632,7 +646,29 @@ namespace UnityEngine.Rendering.Universal.Internal
             }
         }
 
-        bool SetupForEmptyRendering(bool stripShadowsOffVariants, UniversalLightData lightData, UniversalShadowData shadowData)
+        bool AnyAdditionalLightHasMixedShadows(UniversalLightData lightData)
+        {
+            for (int visibleLightIndex = 0; visibleLightIndex < lightData.visibleLights.Length; ++visibleLightIndex)
+            {
+                if (visibleLightIndex == lightData.mainLightIndex)
+                {
+                    continue;
+                }
+
+                Light light = lightData.visibleLights[visibleLightIndex].light;
+                if (light.shadows != LightShadows.None &&
+                    light.bakingOutput.isBaked &&
+                    light.bakingOutput.mixedLightingMode != MixedLightingMode.IndirectOnly &&
+                    light.bakingOutput.lightmapBakeType == LightmapBakeType.Mixed)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool SetupForEmptyRendering(bool stripShadowsOffVariants, bool shadowsEnabled, UniversalLightData lightData, UniversalShadowData shadowData)
         {
             if (!stripShadowsOffVariants)
                 return false;
@@ -640,6 +676,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             shadowData.isKeywordAdditionalLightShadowsEnabled = true;
             m_CreateEmptyShadowmap = true;
             useNativeRenderPass = false;
+
+            m_SetKeywordForEmptyShadowmap = shadowsEnabled;
 
             // Even though there are not real-time shadows, the lights might be using shadowmasks,
             // which is why we need to update the shadow parameters, for example so shadow strength can be used.
@@ -649,11 +687,21 @@ namespace UnityEngine.Rendering.Universal.Internal
             s_EmptyAdditionalShadowFadeParams = new Vector4(shadowFadeScale, shadowFadeBias, 0, 0);
 
             var visibleLights = lightData.visibleLights;
-            if (m_VisibleLightIndexToAdditionalLightIndex.Length < visibleLights.Length)
+            if (s_EmptyAdditionalLightIndexToShadowParams.Length < visibleLights.Length)
             {
                 m_VisibleLightIndexToAdditionalLightIndex = new short[visibleLights.Length];
                 m_VisibleLightIndexToIsCastingShadows = new bool[visibleLights.Length];
                 s_EmptyAdditionalLightIndexToShadowParams = new Vector4[visibleLights.Length];
+                isAdditionalShadowParamsDirty = true;
+            }
+
+            // Temporarily we are avoiding SetGlobalVectorArray array for _AdditionalShadowParams if we exceeds maximum additional lights (UUM-102023).
+            if (isAdditionalShadowParamsDirty)
+            {
+                isAdditionalShadowParamsDirty = false;
+                Debug.LogWarning($"The number of visible additional lights {visibleLights.Length} exceeds the maximum supported lights {UniversalRenderPipeline.maxVisibleAdditionalLights}." +
+                    $" Please refer URP documentation to change maximum number of visible lights or" +
+                    $" reduce the number of lights to maximum allowed additional lights.");
             }
 
             // Initialize _AdditionalShadowParams
@@ -737,7 +785,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             RasterCommandBuffer rasterCommandBuffer = CommandBufferHelpers.GetRasterCommandBuffer(renderingData.commandBuffer);
             if (m_CreateEmptyShadowmap)
             {
-                rasterCommandBuffer.EnableKeyword(ShaderGlobalKeywords.AdditionalLightShadows);
+                if (m_SetKeywordForEmptyShadowmap)
+                    rasterCommandBuffer.EnableKeyword(ShaderGlobalKeywords.AdditionalLightShadows);
                 SetShadowParamsForEmptyShadowmap(rasterCommandBuffer);
                 universalRenderingData.commandBuffer.SetGlobalTexture(AdditionalShadowsConstantBuffer._AdditionalLightsShadowmapID, m_EmptyAdditionalLightShadowmapTexture);
                 return;
@@ -785,7 +834,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 shadowParamsBuffer.SetData(s_EmptyAdditionalLightIndexToShadowParams);
                 rasterCommandBuffer.SetGlobalBuffer(AdditionalShadowsConstantBuffer._AdditionalShadowParams_SSBO, shadowParamsBuffer);
             }
-            else
+            else if (s_EmptyAdditionalLightIndexToShadowParams.Length <= UniversalRenderPipeline.maxVisibleAdditionalLights)
             {
                 rasterCommandBuffer.SetGlobalVectorArray(AdditionalShadowsConstantBuffer._AdditionalShadowParams, s_EmptyAdditionalLightIndexToShadowParams);
             }
@@ -919,6 +968,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             passData.stripShadowsOffVariants = cameraData.renderer.stripShadowsOffVariants;
 
             passData.emptyShadowmap = m_CreateEmptyShadowmap;
+            passData.setKeywordForEmptyShadowmap = m_SetKeywordForEmptyShadowmap;
             passData.useStructuredBuffer = m_UseStructuredBuffer;
         }
 
@@ -990,7 +1040,8 @@ namespace UnityEngine.Rendering.Universal.Internal
                     }
                     else
                     {
-                        rasterCommandBuffer.EnableKeyword(ShaderGlobalKeywords.AdditionalLightShadows);
+                        if (data.setKeywordForEmptyShadowmap)
+                            rasterCommandBuffer.EnableKeyword(ShaderGlobalKeywords.AdditionalLightShadows);
                         SetShadowParamsForEmptyShadowmap(rasterCommandBuffer);
                     }
                 });
