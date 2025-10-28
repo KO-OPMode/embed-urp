@@ -6,11 +6,6 @@ namespace UnityEngine.Rendering.Universal
 {
     internal sealed partial class Renderer2D : ScriptableRenderer
     {
-        #if UNITY_SWITCH || UNITY_EMBEDDED_LINUX || UNITY_QNX || UNITY_ANDROID
-        const GraphicsFormat k_DepthStencilFormat = GraphicsFormat.D24_UNorm_S8_UInt;
-        #else
-        const GraphicsFormat k_DepthStencilFormat = GraphicsFormat.D32_SFloat_S8_UInt;
-        #endif
 
         const int k_FinalBlitPassQueueOffset = 1;
         const int k_AfterFinalBlitPassQueueOffset = k_FinalBlitPassQueueOffset + 1;
@@ -120,6 +115,15 @@ namespace UnityEngine.Rendering.Universal
             LensFlareCommonSRP.Initialize();
 
             Light2DManager.Initialize();
+
+            PlatformAutoDetect.Initialize();
+
+#if ENABLE_VR && ENABLE_XR_MODULE
+            if (GraphicsSettings.TryGetRenderPipelineSettings<UniversalRenderPipelineRuntimeXRResources>(out var xrResources))
+            {
+                XRSystem.Initialize(XRPassUniversal.Create, xrResources.xrOcclusionMeshPS, xrResources.xrMirrorViewPS);
+            }
+#endif
         }
 
         protected override void Dispose(bool disposing)
@@ -136,6 +140,9 @@ namespace UnityEngine.Rendering.Universal
             m_DrawOffscreenUIPass?.Dispose();
             m_DrawOverlayUIPass?.Dispose();
             Light2DManager.Dispose();
+#if ENABLE_VR && ENABLE_XR_MODULE
+            XRSystem.Dispose();
+#endif
 
             CoreUtils.Destroy(m_BlitMaterial);
             CoreUtils.Destroy(m_BlitHDRMaterial);
@@ -232,7 +239,7 @@ namespace UnityEngine.Rendering.Universal
                 {
                     var depthDescriptor = cameraTargetDescriptor;
                     depthDescriptor.colorFormat = RenderTextureFormat.Depth;
-                    depthDescriptor.depthStencilFormat = k_DepthStencilFormat;
+                    depthDescriptor.depthStencilFormat = CoreUtils.GetDefaultDepthStencilFormat(); 
                     if (!cameraData.resolveFinalTarget && m_UseDepthStencilBuffer)
                         depthDescriptor.bindMS = depthDescriptor.msaaSamples > 1 && !SystemInfo.supportsMultisampleAutoResolve && (SystemInfo.supportsMultisampledTextures != 0);
                     RenderingUtils.ReAllocateHandleIfNeeded(ref m_DepthTextureHandle, depthDescriptor, FilterMode.Point, wrapMode: TextureWrapMode.Clamp, name: "_CameraDepthAttachment");
@@ -303,7 +310,7 @@ namespace UnityEngine.Rendering.Universal
                         RenderingUtils.ReAllocateHandleIfNeeded(ref DebugHandler.DebugScreenColorHandle, descriptor, name: "_DebugScreenColor");
 
                         RenderTextureDescriptor depthDesc = cameraData.cameraTargetDescriptor;
-                        DebugHandler.ConfigureDepthDescriptorForDebugScreen(ref depthDesc, k_DepthStencilFormat, cameraData.pixelWidth, cameraData.pixelHeight);
+                        DebugHandler.ConfigureDepthDescriptorForDebugScreen(ref depthDesc, CoreUtils.GetDefaultDepthStencilFormat(), cameraData.pixelWidth, cameraData.pixelHeight);
                         RenderingUtils.ReAllocateHandleIfNeeded(ref DebugHandler.DebugScreenDepthHandle, depthDesc, name: "_DebugScreenDepth");
                     }
 
@@ -355,13 +362,6 @@ namespace UnityEngine.Rendering.Universal
 
             var cmd = universalRenderingData.commandBuffer;
 
-#if UNITY_EDITOR
-            if(m_DefaultWhiteTextureHandle == null)
-                m_DefaultWhiteTextureHandle = RTHandles.Alloc(Texture2D.whiteTexture, "_DefaultWhiteTex");
-
-            cmd.SetGlobalTexture(m_DefaultWhiteTextureHandle.name, m_DefaultWhiteTextureHandle.nameID);
-#endif
-
             using (new ProfilingScope(cmd, m_ProfilingSampler))
             {
                 CreateRenderTextures(ref renderPassInputs, cmd, cameraData, ppcUsesOffscreenRT, colorTextureFilterMode,
@@ -391,7 +391,7 @@ namespace UnityEngine.Rendering.Universal
             bool outputToHDR = cameraData.isHDROutputActive;
             if (shouldRenderUI && outputToHDR)
             {
-                m_DrawOffscreenUIPass.Setup(cameraData, k_DepthStencilFormat);
+                m_DrawOffscreenUIPass.Setup(cameraData, CoreUtils.GetDefaultDepthStencilFormat());
                 EnqueuePass(m_DrawOffscreenUIPass);
             }
 
@@ -540,14 +540,9 @@ namespace UnityEngine.Rendering.Universal
             return SystemInfo.graphicsDeviceType == GraphicsDeviceType.OpenGLES3;
         }
 
-        internal static bool IsGLDevice()
-        {
-            return IsGLESDevice() || SystemInfo.graphicsDeviceType == GraphicsDeviceType.OpenGLCore;
-        }
-
         internal static bool supportsMRT
         {
-            get => !IsGLDevice();
+            get => !IsGLESDevice();
         }
 
         internal override bool supportsNativeRenderPassRendergraphCompiler => true;

@@ -165,11 +165,13 @@ namespace UnityEditor.Rendering.Universal
             internal bool isHololens { get; private set; }
             internal bool isQuest { get; private set; }
             internal bool isSwitch { get; private set; }
+            internal bool isSwitch2 { get; private set; }
 
             private PlatformBuildTimeDetect()
             {
                 BuildTargetGroup buildTargetGroup = BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget);
                 isSwitch = buildTargetGroup == BuildTargetGroup.Switch;
+                isSwitch2 = buildTargetGroup == BuildTargetGroup.Switch2;
 
 #if XR_MANAGEMENT_4_0_1_OR_NEWER
                 var buildTargetSettings = XRGeneralSettingsPerBuildTarget.XRGeneralSettingsForBuildTarget(buildTargetGroup);
@@ -279,7 +281,7 @@ namespace UnityEditor.Rendering.Universal
 
             PlatformBuildTimeDetect platformBuildTimeDetect = PlatformBuildTimeDetect.GetInstance();
             bool isShaderAPIMobileDefined = GraphicsSettings.HasShaderDefine(BuiltinShaderDefine.SHADER_API_MOBILE);
-            if (platformBuildTimeDetect.isSwitch || isShaderAPIMobileDefined)
+            if (platformBuildTimeDetect.isSwitch || platformBuildTimeDetect.isSwitch2 || isShaderAPIMobileDefined)
                 s_UseSHPerVertexForSHAuto = true;
 
             // XR Stripping
@@ -635,7 +637,7 @@ namespace UnityEditor.Rendering.Universal
             rsd.needsGBufferRenderingLayers       = (rsd.isUniversalRenderer && rsd.renderingMode == RenderingMode.Deferred && urpAsset.useRenderingLayers);
             rsd.needsGBufferAccurateNormals       = (rsd.isUniversalRenderer && rsd.renderingMode == RenderingMode.Deferred && universalRendererData.accurateGbufferNormals);
             rsd.needsRenderPass                   = (rsd.isUniversalRenderer && rsd.renderingMode == RenderingMode.Deferred);
-            rsd.needsReflectionProbeBlending      = urpAsset.reflectionProbeBlending;
+            rsd.needsReflectionProbeBlending      = urpAsset.ShouldUseReflectionProbeBlending();
             rsd.needsReflectionProbeBoxProjection = urpAsset.reflectionProbeBoxProjection;
             rsd.needsProcedural                   = NeedsProceduralKeyword(ref rsd);
             rsd.needsSHVertexForSHAuto            = s_UseSHPerVertexForSHAuto;
@@ -917,6 +919,8 @@ namespace UnityEditor.Rendering.Universal
             spd.stripAlphaOutputKeywords = !IsFeatureEnabled(shaderFeatures, ShaderFeatures.AlphaOutput);
             spd.stripDebugDisplay = stripDebug;
             spd.stripScreenCoordOverride = stripScreenCoord;
+            spd.stripReflectionProbeBlending = !IsFeatureEnabled(shaderFeatures, ShaderFeatures.ReflectionProbeBlending);
+            spd.stripReflectionProbeBoxProjection = !IsFeatureEnabled(shaderFeatures, ShaderFeatures.ReflectionProbeBoxProjection);
 
             // Rendering Modes
             // Check if only Deferred is being used
