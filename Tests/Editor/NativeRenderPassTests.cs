@@ -1,3 +1,4 @@
+#if URP_COMPATIBILITY_MODE
 using System;
 using NUnit.Framework;
 using UnityEngine.TestTools;
@@ -121,11 +122,9 @@ namespace UnityEditor.Rendering.Universal.Tests
             InitializeRenderPassQueue(m_TestHelper.scriptableRenderer, ScriptableRenderer.kRenderPassMaxCount+1);
             // Check that a logError is thrown, but no other errors are thrown.
             m_TestHelper.scriptableRenderer.SetupNativeRenderPassFrameData( m_TestHelper.cameraData, true );
-            LogAssert.Expect($"Exceeded the maximum number of Render Passes (${ScriptableRenderer.kRenderPassMaxCount}). Please consider using Render Graph to support a higher number of render passes with Native RenderPass, note support will be enabled by default.");
+            LogAssert.Expect(LogType.Error, $"Exceeded the maximum number of Render Passes (${ScriptableRenderer.kRenderPassMaxCount}). Please consider using Render Graph to support a higher number of render passes with Native RenderPass, note support will be enabled by default.");
         }
 
     }
-
-    
-
 }
+#endif

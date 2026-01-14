@@ -21,11 +21,13 @@ namespace UnityEngine.Rendering.Universal
         private static readonly int k_HDREmulationScaleID = Shader.PropertyToID("_HDREmulationScale");
         private static readonly int k_RendererColorID = Shader.PropertyToID("_RendererColor");
 
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+#if URP_COMPATIBILITY_MODE
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             throw new NotImplementedException();
         }
+#endif
 
         private static void Execute(RasterGraphContext context, PassData passData)
         {
@@ -124,7 +126,6 @@ namespace UnityEngine.Rendering.Universal
 
                     SetGlobalLightTextures(graph, builder, passData.lightTextures, ref layerBatch, rendererData, isLitView);
 
-                    builder.AllowPassCulling(false);
                     builder.AllowGlobalStateModification(true);
 
                     builder.SetRenderFunc((SetGlobalPassData data, RasterGraphContext context) =>
@@ -180,7 +181,7 @@ namespace UnityEngine.Rendering.Universal
                 // Set color and depth attachments
                 builder.SetRenderAttachment(commonResourceData.activeColorTexture, 0);
 
-                if (rendererData.useDepthStencilBuffer)
+                if (Renderer2D.IsDepthUsageAllowed(frameData, rendererData))
                     builder.SetRenderAttachmentDepth(commonResourceData.activeDepthTexture);
 
                 builder.AllowGlobalStateModification(true);

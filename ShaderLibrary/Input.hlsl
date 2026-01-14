@@ -128,7 +128,6 @@ half4 _AmbientOcclusionParam;
 half4 _AdditionalLightsCount;
 
 uint _RenderingLayerMaxInt;
-float _RenderingLayerRcpMaxInt;
 
 // Screen coord override.
 float4 _ScreenCoordScaleBias;
@@ -136,7 +135,7 @@ float4 _ScreenSizeOverride;
 
 uint _EnableProbeVolumes;
 
-#if USE_FORWARD_PLUS
+#if USE_CLUSTER_LIGHT_LOOP
 float4 _FPParams0;
 float4 _FPParams1;
 float4 _FPParams2;
@@ -178,7 +177,7 @@ CBUFFER_END
 #endif
 #endif
 
-#if USE_FORWARD_PLUS
+#if USE_CLUSTER_LIGHT_LOOP
 
 CBUFFER_START(urp_ZBinBuffer)
         float4 urp_ZBins[MAX_ZBIN_VEC4S];
@@ -200,6 +199,7 @@ float4 urp_ReflProbes_BoxMax[MAX_REFLECTION_PROBES];          // w contains the 
 float4 urp_ReflProbes_BoxMin[MAX_REFLECTION_PROBES];          // w contains the importance
 float4 urp_ReflProbes_ProbePosition[MAX_REFLECTION_PROBES];   // w is positive for box projection, |w| is max mip level
 float4 urp_ReflProbes_MipScaleOffset[MAX_REFLECTION_PROBES * 7];
+float4 urp_ReflProbes_Rotation[MAX_REFLECTION_PROBES];
 #ifndef LIGHT_SHADOWS_NO_CBUFFER
 CBUFFER_END
 #endif

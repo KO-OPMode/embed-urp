@@ -19,7 +19,10 @@ namespace UnityEngine.Rendering.Universal
         private DecalDrawScreenSpaceSystem m_DrawSystem;
         private DecalScreenSpaceSettings m_Settings;
         private bool m_DecalLayers;
+
+#if URP_COMPATIBILITY_MODE
         private PassData m_PassData;
+#endif
 
         public DecalScreenSpaceRenderPass(DecalScreenSpaceSettings settings, DecalDrawScreenSpaceSystem drawSystem, bool decalLayers)
         {
@@ -41,7 +44,9 @@ namespace UnityEngine.Rendering.Universal
             else
                 m_ShaderTagIdList.Add(new ShaderTagId(DecalShaderPassNames.DecalScreenSpaceMesh));
 
+#if URP_COMPATIBILITY_MODE
             m_PassData = new PassData();
+#endif
         }
 
         private RendererListParams CreateRenderListParams(UniversalRenderingData renderingData, UniversalCameraData cameraData, UniversalLightData lightData)
@@ -51,7 +56,8 @@ namespace UnityEngine.Rendering.Universal
             return new RendererListParams(renderingData.cullResults, drawingSettings, m_FilteringSettings);
         }
 
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+#if URP_COMPATIBILITY_MODE
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             UniversalCameraData cameraData = renderingData.frameData.Get<UniversalCameraData>();
@@ -67,6 +73,7 @@ namespace UnityEngine.Rendering.Universal
                 ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(renderingData.commandBuffer), m_PassData, rendererList);
             }
         }
+#endif
 
         private class PassData
         {
@@ -109,6 +116,7 @@ namespace UnityEngine.Rendering.Universal
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
 
             TextureHandle cameraDepthTexture = resourceData.cameraDepthTexture;
+            TextureHandle renderingLayersTexture = resourceData.renderingLayersTexture;
 
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(passName, out var passData, profilingSampler))
             {
@@ -121,6 +129,10 @@ namespace UnityEngine.Rendering.Universal
                 builder.SetRenderAttachment(resourceData.activeColorTexture, 0, AccessFlags.Write);
                 builder.SetRenderAttachmentDepth(resourceData.activeDepthTexture, AccessFlags.Read);
 
+                if (cameraData.xr.enabled)
+                {
+                    builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                }
 
                 var param = CreateRenderListParams(renderingData, passData.cameraData, lightData);
                 passData.rendererList = renderGraph.CreateRendererList(param);
@@ -128,6 +140,9 @@ namespace UnityEngine.Rendering.Universal
 
                 if (cameraDepthTexture.IsValid())
                     builder.UseTexture(cameraDepthTexture, AccessFlags.Read);
+
+                if (passData.decalLayers && renderingLayersTexture.IsValid())
+                    builder.UseTexture(renderingLayersTexture, AccessFlags.Read);
 
                 builder.AllowGlobalStateModification(true);
 

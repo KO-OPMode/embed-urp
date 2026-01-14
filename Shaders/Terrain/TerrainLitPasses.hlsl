@@ -3,7 +3,7 @@
 #define UNIVERSAL_TERRAIN_LIT_PASSES_INCLUDED
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/UnityGBuffer.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/GBufferOutput.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DBuffer.hlsl"
 
 struct Attributes
@@ -110,7 +110,7 @@ void InitializeInputData(Varyings IN, half3 normalTS, out InputData inputData)
     inputData.vertexSH = SH;
     #endif
     #if defined(USE_APV_PROBE_OCCLUSION)
-    inputData.probeOcclusion = input.probeOcclusion;
+    inputData.probeOcclusion = IN.probeOcclusion;
     #endif
     #endif
 }
@@ -123,7 +123,9 @@ void InitializeBakedGIData(Varyings IN, inout InputData inputData)
     half3 SH = IN.vertexSH;
     #endif
 
-#if defined(DYNAMICLIGHTMAP_ON)
+#if defined(_SCREEN_SPACE_IRRADIANCE)
+    inputData.bakedGI = SAMPLE_GI(_ScreenSpaceIrradiance, inputData.positionCS.xy);
+#elif defined(DYNAMICLIGHTMAP_ON)
     inputData.bakedGI = SAMPLE_GI(IN.uvMainAndLM.zw, IN.dynamicLightmapUV, SH, inputData.normalWS);
     inputData.shadowMask = SAMPLE_SHADOWMASK(IN.uvMainAndLM.zw);
 #elif !defined(LIGHTMAP_ON) && (defined(PROBE_VOLUMES_L1) || defined(PROBE_VOLUMES_L2))
@@ -381,13 +383,13 @@ void ComputeMasks(out half4 masks[4], half4 hasMask, Varyings IN)
 
 // Used in Standard Terrain shader
 #ifdef TERRAIN_GBUFFER
-FragmentOutput SplatmapFragment(Varyings IN)
+GBufferFragOutput SplatmapFragment(Varyings IN)
 #else
 void SplatmapFragment(
     Varyings IN
     , out half4 outColor : SV_Target0
 #ifdef _WRITE_RENDERING_LAYERS
-    , out float4 outRenderingLayers : SV_Target1
+    , out uint outRenderingLayers : SV_Target1
 #endif
     )
 #endif
@@ -469,7 +471,8 @@ void SplatmapFragment(
     half4 color;
     Light mainLight = GetMainLight(inputData.shadowCoord, inputData.positionWS, inputData.shadowMask);
     MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI, inputData.shadowMask);
-    color.rgb = GlobalIllumination(brdfData, inputData.bakedGI, occlusion, inputData.positionWS, inputData.normalWS, inputData.viewDirectionWS);
+    color.rgb = GlobalIllumination(brdfData, (BRDFData)0, 0, inputData.bakedGI, occlusion, inputData.positionWS,
+                                   inputData.normalWS, inputData.viewDirectionWS, inputData.normalizedScreenSpaceUV);
     color.a = alpha;
     SplatmapFinalColor(color, inputData.fogCoord);
 
@@ -483,7 +486,7 @@ void SplatmapFragment(
     inputData.normalWS = inputData.normalWS * alpha;
     smoothness *= alpha;
 
-    return BRDFDataToGbuffer(brdfData, inputData, smoothness, color.rgb, occlusion);
+    return PackGBuffersBRDFData(brdfData, inputData, smoothness, color.rgb, occlusion);
 #else
 
     half4 color = UniversalFragmentPBR(inputData, albedo, metallic, /* specular */ half3(0.0h, 0.0h, 0.0h), smoothness, occlusion, /* emission */ half3(0, 0, 0), alpha);
@@ -493,8 +496,7 @@ void SplatmapFragment(
     outColor = half4(color.rgb, 1.0h);
 
 #ifdef _WRITE_RENDERING_LAYERS
-    uint renderingLayers = GetMeshRenderingLayer();
-    outRenderingLayers = float4(EncodeMeshRenderingLayer(renderingLayers), 0, 0, 0);
+    outRenderingLayers = EncodeMeshRenderingLayer();
 #endif
 #endif
 }

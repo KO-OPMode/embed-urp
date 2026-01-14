@@ -1,5 +1,6 @@
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.Universal.Internal;
 using static UnityEngine.Rendering.Universal.UniversalResourceDataBase;
 using CommonResourceData = UnityEngine.Rendering.Universal.UniversalResourceData;
 
@@ -7,29 +8,11 @@ namespace UnityEngine.Rendering.Universal
 {
     internal sealed partial class Renderer2D : ScriptableRenderer
     {
-        // TODO RENDERGRAPH: Once all cameras will run in a single RenderGraph we should remove all RTHandles and use per frame RG textures.
-        // We use 2 camera color handles so we can handle the edge case when a pass might want to read and write the same target.
-        // This is not allowed so we just swap the current target, this keeps camera stacking working and avoids an extra blit pass.
-        static int m_CurrentColorHandle = 0;
-        RTHandle[] m_RenderGraphCameraColorHandles = new RTHandle[]
+        private struct RenderPassInputSummary
         {
-            null, null
-        };
-
-        RTHandle m_RenderGraphCameraDepthHandle;
-        RTHandle m_RenderGraphBackbufferColorHandle;
-        RTHandle m_RenderGraphBackbufferDepthHandle;
-        RTHandle m_CameraSortingLayerHandle;
-
-        DrawNormal2DPass m_NormalPass = new DrawNormal2DPass();
-        DrawLight2DPass m_LightPass = new DrawLight2DPass();
-        DrawShadow2DPass m_ShadowPass = new DrawShadow2DPass();
-        DrawRenderer2DPass m_RendererPass = new DrawRenderer2DPass();
-
-        LayerBatch[] m_LayerBatches;
-        int m_BatchCount;
-
-        bool ppcUpscaleRT = false;
+            internal bool requiresDepthTexture;
+            internal bool requiresColorTexture;
+        }
 
         private struct ImportResourceSummary
         {
@@ -40,6 +23,54 @@ namespace UnityEngine.Rendering.Universal
             internal ImportResourceParams backBufferColorParams;
             internal ImportResourceParams backBufferDepthParams;
         }
+
+        const int k_FinalBlitPassQueueOffset = 1;
+        const int k_AfterFinalBlitPassQueueOffset = k_FinalBlitPassQueueOffset + 1;
+
+        // TODO RENDERGRAPH: Once all cameras will run in a single RenderGraph we should remove all RTHandles and use per frame RG textures.
+        // We use 2 camera color handles so we can handle the edge case when a pass might want to read and write the same target.
+        // This is not allowed so we just swap the current target, this keeps camera stacking working and avoids an extra blit pass.
+        static int m_CurrentColorHandle = 0;
+        internal RTHandle[] m_RenderGraphCameraColorHandles = new RTHandle[]
+        {
+            null, null
+        };
+
+        internal RTHandle m_RenderGraphCameraDepthHandle;
+        RTHandle m_RenderGraphBackbufferColorHandle;
+        RTHandle m_RenderGraphBackbufferDepthHandle;
+        RTHandle m_CameraSortingLayerHandle;
+        static RTHandle m_OffscreenUIColorHandle;
+
+        Material m_BlitMaterial;
+        Material m_BlitHDRMaterial;
+        Material m_BlitOffscreenUICoverMaterial;
+        Material m_SamplingMaterial;
+
+        // 2D specific render passes
+        DrawNormal2DPass m_NormalPass = new DrawNormal2DPass();
+        DrawLight2DPass m_LightPass = new DrawLight2DPass();
+        DrawShadow2DPass m_ShadowPass = new DrawShadow2DPass();
+        DrawRenderer2DPass m_RendererPass = new DrawRenderer2DPass();
+
+        CopyDepthPass m_CopyDepthPass;
+        UpscalePass m_UpscalePass;
+        CopyCameraSortingLayerPass m_CopyCameraSortingLayerPass;
+        FinalBlitPass m_FinalBlitPass;
+        FinalBlitPass m_OffscreenUICoverPrepass;
+        DrawScreenSpaceUIPass m_DrawOffscreenUIPass;
+        DrawScreenSpaceUIPass m_DrawOverlayUIPass; // from HDRP code
+
+        Renderer2DData m_Renderer2DData;
+        LayerBatch[] m_LayerBatches;
+        int m_BatchCount;
+
+        internal bool m_CreateColorTexture;
+        internal bool m_CreateDepthTexture;
+        bool ppcUpscaleRT = false;
+
+        PostProcessPassRenderGraph m_PostProcessPassRenderGraph;
+        ColorGradingLutPass m_ColorGradingLutPassRenderGraph;
 
         private RTHandle currentRenderGraphCameraColorHandle
         {
@@ -59,15 +90,120 @@ namespace UnityEngine.Rendering.Universal
             }
         }
 
-        private bool IsPixelPerfectCameraEnabled(UniversalCameraData cameraData)
+        /// <inheritdoc/>
+        public override int SupportedCameraStackingTypes()
         {
-            PixelPerfectCamera ppc = null;
+            return 1 << (int)CameraRenderType.Base | 1 << (int)CameraRenderType.Overlay;
+        }
+
+        public Renderer2D(Renderer2DData data) : base(data)
+        {
+            if (GraphicsSettings.TryGetRenderPipelineSettings<UniversalRenderPipelineRuntimeShaders>(out var shadersResources))
+            {
+                m_BlitMaterial = CoreUtils.CreateEngineMaterial(shadersResources.coreBlitPS);
+                m_BlitHDRMaterial = CoreUtils.CreateEngineMaterial(shadersResources.blitHDROverlay);
+                m_BlitOffscreenUICoverMaterial = CoreUtils.CreateEngineMaterial(shadersResources.blitHDROverlay);
+                m_SamplingMaterial = CoreUtils.CreateEngineMaterial(shadersResources.samplingPS);
+            }
+
+            if (GraphicsSettings.TryGetRenderPipelineSettings<Renderer2DResources>(out var renderer2DResources))
+            {
+                m_CopyDepthPass = new CopyDepthPass(
+                    RenderPassEvent.AfterRenderingTransparents,
+                    renderer2DResources.copyDepthPS,
+                    shouldClear: true,
+                    copyResolvedDepth: RenderingUtils.MultisampleDepthResolveSupported());
+            }
+
+            m_UpscalePass = new UpscalePass(RenderPassEvent.AfterRenderingPostProcessing, m_BlitMaterial);
+            m_CopyCameraSortingLayerPass = new CopyCameraSortingLayerPass(m_BlitMaterial);
+            m_FinalBlitPass = new FinalBlitPass(RenderPassEvent.AfterRendering + k_FinalBlitPassQueueOffset, m_BlitMaterial, m_BlitHDRMaterial);
+            m_OffscreenUICoverPrepass = new FinalBlitPass(RenderPassEvent.BeforeRenderingPostProcessing, m_BlitMaterial, m_BlitOffscreenUICoverMaterial);
+
+            m_DrawOffscreenUIPass = new DrawScreenSpaceUIPass(RenderPassEvent.BeforeRenderingPostProcessing, true);
+            m_DrawOverlayUIPass = new DrawScreenSpaceUIPass(RenderPassEvent.AfterRendering + k_AfterFinalBlitPassQueueOffset, false); // after m_FinalBlitPass
+
+            m_Renderer2DData = data;
+            m_Renderer2DData.lightCullResult = new Light2DCullResult();
+
+            supportedRenderingFeatures = new RenderingFeatures();
+
+            LensFlareCommonSRP.mergeNeeded = 0;
+            LensFlareCommonSRP.maxLensFlareWithOcclusionTemporalSample = 1;
+            LensFlareCommonSRP.Initialize();
+
+            Light2DManager.Initialize();
+
+            if (data.postProcessData != null)
+            {
+                m_PostProcessPassRenderGraph = new PostProcessPassRenderGraph(data.postProcessData, GraphicsFormat.B10G11R11_UFloatPack32);
+                m_ColorGradingLutPassRenderGraph = new ColorGradingLutPass(RenderPassEvent.BeforeRenderingPrePasses, data.postProcessData);
+            }
+
+            PlatformAutoDetect.Initialize();
+
+#if ENABLE_VR && ENABLE_XR_MODULE
+            if (GraphicsSettings.TryGetRenderPipelineSettings<UniversalRenderPipelineRuntimeXRResources>(out var xrResources))
+            {
+                XRSystem.Initialize(XRPassUniversal.Create, xrResources.xrOcclusionMeshPS, xrResources.xrMirrorViewPS);
+            }
+#endif
+
+#if URP_COMPATIBILITY_MODE
+            InitializeCompatibilityMode(data);
+#endif
+        }
+
+        internal static bool IsDepthUsageAllowed(ContextContainer frameData, Renderer2DData rendererData)
+        {
+            UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+
+            bool allowDepth = rendererData.useDepthStencilBuffer;
+
+            // 3D Render Textures with depth/stencil buffer are not supported
+            if (cameraData.targetTexture != null)
+                allowDepth &= cameraData.targetTexture.dimension != TextureDimension.Tex3D;
+
+            return allowDepth;
+        }
+
+        private bool IsPixelPerfectCameraEnabled(UniversalCameraData cameraData, out PixelPerfectCamera ppc)
+        {
+            ppc = null;
 
             // Pixel Perfect Camera doesn't support camera stacking.
             if (cameraData.renderType == CameraRenderType.Base && cameraData.resolveFinalTarget)
                 cameraData.camera.TryGetComponent(out ppc);
 
-            return ppc != null && ppc.enabled && ppc.cropFrame != PixelPerfectCamera.CropFrame.None;
+            return ppc != null && ppc.enabled;
+        }
+
+        private RenderPassInputSummary GetRenderPassInputs(UniversalCameraData cameraData)
+        {
+            RenderPassInputSummary inputSummary = new RenderPassInputSummary();
+
+            for (int i = 0; i < activeRenderPassQueue.Count; ++i)
+            {
+                ScriptableRenderPass pass = activeRenderPassQueue[i];
+                bool needsDepth = (pass.input & ScriptableRenderPassInput.Depth) != ScriptableRenderPassInput.None;
+                bool needsColor = (pass.input & ScriptableRenderPassInput.Color) != ScriptableRenderPassInput.None;
+
+                inputSummary.requiresDepthTexture |= needsDepth;
+                inputSummary.requiresColorTexture |= needsColor;
+            }
+
+            inputSummary.requiresColorTexture |= cameraData.postProcessEnabled
+                    || cameraData.isHdrEnabled
+                    || cameraData.isSceneViewCamera
+                    || !cameraData.isDefaultViewport
+                    || cameraData.requireSrgbConversion
+                    || !cameraData.resolveFinalTarget
+                    || cameraData.cameraTargetDescriptor.msaaSamples > 1 && UniversalRenderer.PlatformRequiresExplicitMsaaResolve()
+                    || m_Renderer2DData.useCameraSortingLayerTexture
+                    || !Mathf.Approximately(cameraData.renderScale, 1.0f)
+                    || (DebugHandler != null && DebugHandler.WriteToDebugScreenTexture(cameraData.resolveFinalTarget));
+
+            return inputSummary;
         }
 
         ImportResourceSummary GetImportResourceSummary(RenderGraph renderGraph, UniversalCameraData cameraData)
@@ -79,7 +215,7 @@ namespace UnityEngine.Rendering.Universal
 
             // Clear back buffer color if pixel perfect crop frame is used
             // Non-base cameras the back buffer should never be cleared
-            bool ppcEnabled = IsPixelPerfectCameraEnabled(cameraData);
+            bool ppcEnabled = IsPixelPerfectCameraEnabled(cameraData, out var ppc) && ppc.cropFrame != PixelPerfectCamera.CropFrame.None;
             bool clearColorBackbufferOnFirstUse = (cameraData.renderType == CameraRenderType.Base) && (!m_CreateColorTexture || ppcEnabled);
             bool clearDepthBackbufferOnFirstUse = (cameraData.renderType == CameraRenderType.Base) && !m_CreateColorTexture;
 
@@ -119,6 +255,12 @@ namespace UnityEngine.Rendering.Universal
             output.backBufferDepthParams.discardOnLastUse = true;
 
             bool isBuiltInTexture = cameraData.targetTexture == null;
+
+            bool useActualBackbufferOrienation = !cameraData.isSceneViewCamera && !cameraData.isPreviewCamera && cameraData.targetTexture == null;
+            TextureUVOrigin backbufferTextureUVOrigin = useActualBackbufferOrienation ? (SystemInfo.graphicsUVStartsAtTop ? TextureUVOrigin.TopLeft : TextureUVOrigin.BottomLeft) : TextureUVOrigin.BottomLeft;
+
+            output.backBufferColorParams.textureUVOrigin = backbufferTextureUVOrigin;
+            output.backBufferDepthParams.textureUVOrigin = backbufferTextureUVOrigin;
 
 #if ENABLE_VR && ENABLE_XR_MODULE
             if (cameraData.xr.enabled)
@@ -183,6 +325,16 @@ namespace UnityEngine.Rendering.Universal
             }
 
             return output;
+        }
+
+        public override void SetupCullingParameters(ref ScriptableCullingParameters cullingParameters, ref CameraData cameraData)
+        {
+            cullingParameters.cullingOptions = CullingOptions.None;
+            cullingParameters.isOrthographic = cameraData.camera.orthographic;
+            cullingParameters.shadowDistance = 0.0f;
+
+            var cullResult = m_Renderer2DData.lightCullResult as Light2DCullResult;
+            cullResult.SetupCulling(ref cullingParameters, cameraData.camera);
         }
 
         void InitializeLayerBatches()
@@ -290,10 +442,10 @@ namespace UnityEngine.Rendering.Universal
                 m_CreateColorTexture |= forceCreateColorTexture;
 
                 // RTHandles do not support combining color and depth in the same texture so we create them separately
-                m_CreateDepthTexture |= createColorTexture;
+                m_CreateDepthTexture |= m_CreateColorTexture;
 
                 // Camera Target Color
-                if (createColorTexture)
+                if (m_CreateColorTexture)
                 {
                     cameraTargetDescriptor.useMipMap = false;
                     cameraTargetDescriptor.autoGenerateMips = false;
@@ -307,7 +459,7 @@ namespace UnityEngine.Rendering.Universal
                     commonResourceData.activeColorID = ActiveID.BackBuffer;
 
                 // Camera Target Depth
-                if (createDepthTexture)
+                if (m_CreateDepthTexture)
                 {
                     var depthDescriptor = cameraData.cameraTargetDescriptor;
                     depthDescriptor.useMipMap = false;
@@ -323,7 +475,10 @@ namespace UnityEngine.Rendering.Universal
                         depthDescriptor.bindMS = false;
 
                     if (m_CopyDepthPass != null)
+                    {
+                        m_CopyDepthPass.MsaaSamples = depthDescriptor.msaaSamples;
                         m_CopyDepthPass.m_CopyResolvedDepth = !depthDescriptor.bindMS;
+                    }
 
                     depthDescriptor.graphicsFormat = GraphicsFormat.None;
                     depthDescriptor.depthStencilFormat = CoreUtils.GetDefaultDepthStencilFormat();
@@ -394,11 +549,14 @@ namespace UnityEngine.Rendering.Universal
             commonResourceData.backBufferColor = renderGraph.ImportTexture(m_RenderGraphBackbufferColorHandle, importSummary.importInfo, importSummary.backBufferColorParams);
             commonResourceData.backBufferDepth = renderGraph.ImportTexture(m_RenderGraphBackbufferDepthHandle, importSummary.importInfoDepth, importSummary.backBufferDepthParams);
 
-            var postProcessDesc = PostProcessPass.GetCompatibleDescriptor(cameraTargetDescriptor, cameraTargetDescriptor.width, cameraTargetDescriptor.height, cameraTargetDescriptor.graphicsFormat);
+            var postProcessDesc = PostProcessPassRenderGraph.GetCompatibleDescriptor(cameraTargetDescriptor, cameraTargetDescriptor.width, cameraTargetDescriptor.height, cameraTargetDescriptor.graphicsFormat);
             commonResourceData.afterPostProcessColor = UniversalRenderer.CreateRenderGraphTexture(renderGraph, postProcessDesc, "_AfterPostProcessTexture", true);
 
             if (RequiresDepthCopyPass(cameraData))
                 CreateCameraDepthCopyTexture(renderGraph, cameraTargetDescriptor);
+
+            if (cameraData.isHDROutputActive && cameraData.rendersOverlayUI)
+                CreateOffscreenUITexture(renderGraph, cameraTargetDescriptor);
         }
 
         void CreateCameraNormalsTextures(RenderGraph renderGraph, RenderTextureDescriptor descriptor, int width, int height)
@@ -413,7 +571,7 @@ namespace UnityEngine.Rendering.Universal
             for (int i = 0; i < resourceData.normalsTexture.Length; ++i)
                 resourceData.normalsTexture[i] = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_NormalMap", true, RendererLighting.k_NormalClearColor);
 
-            if (m_Renderer2DData.useDepthStencilBuffer)
+            if (IsDepthUsageAllowed(frameData, m_Renderer2DData))
             {
                 // Normals pass can reuse active depth if same dimensions, if not create a new depth texture
 #if !(ENABLE_VR && ENABLE_XR_MODULE)
@@ -490,7 +648,7 @@ namespace UnityEngine.Rendering.Universal
         {
             var renderPassInputs = GetRenderPassInputs(cameraData);
             bool requiresDepthTexture = cameraData.requiresDepthTexture || renderPassInputs.requiresDepthTexture;
-            bool cameraHasPostProcessingWithDepth = cameraData.postProcessEnabled && m_PostProcessPasses.isCreated && cameraData.postProcessingRequiresDepthTexture;
+            bool cameraHasPostProcessingWithDepth = cameraData.postProcessEnabled && m_PostProcessPassRenderGraph != null && cameraData.postProcessingRequiresDepthTexture;
             bool requiresDepthCopyPass = (cameraHasPostProcessingWithDepth || requiresDepthTexture) && m_CreateDepthTexture;
 
             return requiresDepthCopyPass;
@@ -506,6 +664,15 @@ namespace UnityEngine.Rendering.Universal
             depthDescriptor.depthStencilFormat = GraphicsFormat.None;
 
             resourceData.cameraDepthTexture = UniversalRenderer.CreateRenderGraphTexture(renderGraph, depthDescriptor, "_CameraDepthTexture", true);
+        }
+
+        void CreateOffscreenUITexture(RenderGraph renderGraph, in RenderTextureDescriptor descriptor)
+        {
+            UniversalResourceData resourceData = frameData.Get<CommonResourceData>();
+            TextureDesc textureDesc = new TextureDesc(descriptor);
+            DrawScreenSpaceUIPass.ConfigureOffscreenUITextureDesc(ref textureDesc);
+            RenderingUtils.ReAllocateHandleIfNeeded(ref m_OffscreenUIColorHandle, textureDesc, name: "_OverlayUITexture");
+            resourceData.overlayUITexture = renderGraph.ImportTexture(m_OffscreenUIColorHandle);
         }
 
         public override void OnBeginRenderGraphFrame()
@@ -538,7 +705,7 @@ namespace UnityEngine.Rendering.Universal
 
             DebugHandler?.Setup(renderGraph, cameraData.isPreviewCamera);
 
-            SetupRenderGraphCameraProperties(renderGraph, commonResourceData.isActiveTargetBackBuffer);
+            SetupRenderGraphCameraProperties(renderGraph, commonResourceData.activeColorTexture);
 
 #if VISUAL_EFFECT_GRAPH_0_0_1_OR_NEWER
             ProcessVFXCameraCommand(renderGraph);
@@ -598,16 +765,16 @@ namespace UnityEngine.Rendering.Universal
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
             // Color Grading LUT
-            bool requiredColorGradingLutPass = cameraData.postProcessEnabled && m_PostProcessPasses.isCreated;
+            bool requiredColorGradingLutPass = cameraData.postProcessEnabled && m_PostProcessPassRenderGraph != null;
 
             if (requiredColorGradingLutPass)
             {
                 TextureHandle internalColorLut;
-                m_PostProcessPasses.colorGradingLutPass.Render(renderGraph, frameData, out internalColorLut);
+                m_ColorGradingLutPassRenderGraph.Render(renderGraph, frameData, out internalColorLut);
                 commonResourceData.internalColorLut = internalColorLut;
             }
 
-            var cameraSortingLayerBoundsIndex = Render2DLightingPass.GetCameraSortingLayerBoundsIndex(m_Renderer2DData);
+            var cameraSortingLayerBoundsIndex = m_Renderer2DData.GetCameraSortingLayerBoundsIndex();
 
             bool useLights = false;
             for (int i = 0; i < m_BatchCount; ++i)
@@ -668,9 +835,21 @@ namespace UnityEngine.Rendering.Universal
             bool outputToHDR = cameraData.isHDROutputActive;
             if (shouldRenderUI && outputToHDR)
             {
-                TextureHandle overlayUI;
-                m_DrawOffscreenUIPass.RenderOffscreen(renderGraph, frameData, CoreUtils.GetDefaultDepthStencilFormat(), out overlayUI);
-                commonResourceData.overlayUITexture = overlayUI;
+                if (cameraData.rendersOffscreenUI)
+                {
+                    m_DrawOffscreenUIPass.RenderOffscreen(renderGraph, frameData, CoreUtils.GetDefaultDepthStencilFormat(), commonResourceData.overlayUITexture);
+                    if (cameraData.blitsOffscreenUICover)
+                    {
+                        var blackTextureDesc = new RenderTextureDescriptor(1, 1, GraphicsFormat.R8G8B8A8_SRGB, 0);
+                        var source = UniversalRenderer.CreateRenderGraphTexture(renderGraph, blackTextureDesc, "BlackTexture", false);
+                        m_OffscreenUICoverPrepass.Render(renderGraph, frameData, cameraData, source, commonResourceData.backBufferColor, commonResourceData.overlayUITexture, true);
+                    }
+                }
+                else
+                {
+                    // When the first camera renders the shared offscreen UI texture, register it as a global texture so subsequent cameras can use it in their final passes.
+                    RenderGraphUtils.SetGlobalTexture(renderGraph, ShaderPropertyId.overlayUITexture, commonResourceData.overlayUITexture);
+                }
             }
         }
 
@@ -701,11 +880,10 @@ namespace UnityEngine.Rendering.Universal
                 commonResourceData.debugScreenDepth = UniversalRenderer.CreateRenderGraphTexture(renderGraph, depthDesc, "_DebugScreenDepth", false);
             }
 
-            bool applyPostProcessing = cameraData.postProcessEnabled && m_PostProcessPasses.isCreated;
-            bool anyPostProcessing = postProcessingData.isEnabled && m_PostProcessPasses.isCreated;
+            bool applyPostProcessing = cameraData.postProcessEnabled && m_PostProcessPassRenderGraph != null;
+            bool anyPostProcessing = postProcessingData.isEnabled && m_PostProcessPassRenderGraph != null;
 
-            cameraData.camera.TryGetComponent<PixelPerfectCamera>(out var ppc);
-            bool requirePixelPerfectUpscale = IsPixelPerfectCameraEnabled(cameraData) && ppc.requiresUpscalePass;
+            bool requirePixelPerfectUpscale = IsPixelPerfectCameraEnabled(cameraData, out var ppc) && ppc.requiresUpscalePass;
 
             // When using Upscale Render Texture on a Pixel Perfect Camera, we want all post-processing effects done with a low-res RT,
             // and only upscale the low-res RT to fullscreen when blitting it to camera target. Also, final post processing pass is not run in this case,
@@ -747,7 +925,7 @@ namespace UnityEngine.Rendering.Universal
                 if (resolveToDebugScreen && isTargetBackbuffer)
                     target = commonResourceData.debugScreenColor;
 
-                postProcessPass.RenderPostProcessingRenderGraph(
+                m_PostProcessPassRenderGraph.RenderPostProcessingRenderGraph(
                     renderGraph,
                     frameData,
                     activeColor,
@@ -782,7 +960,7 @@ namespace UnityEngine.Rendering.Universal
 
             if (applyFinalPostProcessing)
             {
-                postProcessPass.RenderFinalPassRenderGraph(renderGraph, frameData, in finalColorHandle, commonResourceData.overlayUITexture, in finalBlitTarget, needsColorEncoding);
+                m_PostProcessPassRenderGraph.RenderFinalPassRenderGraph(renderGraph, frameData, in finalColorHandle, commonResourceData.overlayUITexture, in finalBlitTarget, needsColorEncoding);
 
                 finalColorHandle = finalBlitTarget;
 
@@ -828,15 +1006,64 @@ namespace UnityEngine.Rendering.Universal
             }
         }
 
+        public Renderer2DData GetRenderer2DData()
+        {
+            return m_Renderer2DData;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            CleanupRenderGraphResources();
+
+#if URP_COMPATIBILITY_MODE
+            CleanupCompatibilityModeResources();
+#endif
+
+            base.Dispose(disposing);
+        }
+
         private void CleanupRenderGraphResources()
         {
+            m_Renderer2DData.Dispose();
+            m_UpscalePass.Dispose();
+            m_CopyDepthPass?.Dispose();
+            m_FinalBlitPass?.Dispose();
+            m_OffscreenUICoverPrepass?.Dispose();
+            m_DrawOffscreenUIPass?.Dispose();
+            m_DrawOverlayUIPass?.Dispose();
+            m_PostProcessPassRenderGraph?.Cleanup();
+            m_ColorGradingLutPassRenderGraph?.Cleanup();
+
             m_RenderGraphCameraColorHandles[0]?.Release();
             m_RenderGraphCameraColorHandles[1]?.Release();
             m_RenderGraphCameraDepthHandle?.Release();
             m_RenderGraphBackbufferColorHandle?.Release();
             m_RenderGraphBackbufferDepthHandle?.Release();
             m_CameraSortingLayerHandle?.Release();
+
+            Light2DManager.Dispose();
             Light2DLookupTexture.Release();
+
+            CoreUtils.Destroy(m_BlitMaterial);
+            CoreUtils.Destroy(m_BlitHDRMaterial);
+            CoreUtils.Destroy(m_BlitOffscreenUICoverMaterial);
+            CoreUtils.Destroy(m_SamplingMaterial);
+
+#if ENABLE_VR && ENABLE_XR_MODULE
+            XRSystem.Dispose();
+#endif
         }
+
+        internal static bool IsGLESDevice()
+        {
+            return SystemInfo.graphicsDeviceType == GraphicsDeviceType.OpenGLES3;
+        }
+
+        internal static bool supportsMRT
+        {
+            get => !IsGLESDevice();
+        }
+
+        internal override bool supportsNativeRenderPassRendergraphCompiler => true;
     }
 }

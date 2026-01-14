@@ -10,12 +10,11 @@ namespace UnityEngine.Rendering.Universal
     /// The scriptable render pass used with the render objects renderer feature.
     /// </summary>
     [MovedFrom(true, "UnityEngine.Experimental.Rendering.Universal")]
-    public class RenderObjectsPass : ScriptableRenderPass
+    public partial class RenderObjectsPass : ScriptableRenderPass
     {
         RenderQueueType renderQueueType;
         FilteringSettings m_FilteringSettings;
         RenderObjects.CustomCameraSettings m_CameraSettings;
-
 
         /// <summary>
         /// The override material to use.
@@ -45,7 +44,7 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         /// <param name="writeEnabled">Sets whether it should write to depth or not.</param>
         /// <param name="function">The depth comparison function to use.</param>
-        [Obsolete("Use SetDepthState instead", true)]
+        [Obsolete("Use SetDepthState instead. #from(2023.1) #breakingFrom(2023.1)", true)]
         public void SetDetphState(bool writeEnabled, CompareFunction function = CompareFunction.Less)
         {
             SetDepthState(writeEnabled, function);
@@ -95,7 +94,7 @@ namespace UnityEngine.Rendering.Universal
         /// <param name="renderQueueType">The queue type for the objects to render.</param>
         /// <param name="layerMask">The layer mask to use for creating filtering settings that control what objects get rendered.</param>
         /// <param name="cameraSettings">The settings for custom cameras values.</param>
-        public RenderObjectsPass(string profilerTag, RenderPassEvent renderPassEvent, string[] shaderTags, RenderQueueType renderQueueType, int layerMask, RenderObjects.CustomCameraSettings cameraSettings)            
+        public RenderObjectsPass(string profilerTag, RenderPassEvent renderPassEvent, string[] shaderTags, RenderQueueType renderQueueType, int layerMask, RenderObjects.CustomCameraSettings cameraSettings)
         {
             profilingSampler = new ProfilingSampler(profilerTag);
             Init(renderPassEvent, shaderTags, renderQueueType, layerMask, cameraSettings);
@@ -138,8 +137,9 @@ namespace UnityEngine.Rendering.Universal
             m_CameraSettings = cameraSettings;
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             UniversalRenderingData universalRenderingData = renderingData.frameData.Get<UniversalRenderingData>();
@@ -156,6 +156,7 @@ namespace UnityEngine.Rendering.Universal
                 ExecutePass(m_PassData, cmd , m_PassData.rendererList, renderingData.cameraData.IsCameraProjectionMatrixFlipped());
             }
         }
+#endif
 
         private static void ExecutePass(PassData passData, RasterCommandBuffer cmd, RendererList rendererList, bool isYFlipped)
         {
@@ -164,7 +165,7 @@ namespace UnityEngine.Rendering.Universal
             // In case of camera stacking we need to take the viewport rect from base camera
             Rect pixelRect = passData.cameraData.pixelRect;
             float cameraAspect = (float)pixelRect.width / (float)pixelRect.height;
-           
+
             if (passData.cameraSettings.overrideCamera)
             {
                 if (passData.cameraData.xr.enabled)
@@ -198,7 +199,7 @@ namespace UnityEngine.Rendering.Universal
             if (passData.cameraSettings.overrideCamera && passData.cameraSettings.restoreCamera && !passData.cameraData.xr.enabled)
             {
                 RenderingUtils.SetViewAndProjectionMatrices(cmd, passData.cameraData.GetViewMatrix(), GL.GetGPUProjectionMatrix(passData.cameraData.GetProjectionMatrix(0), isYFlipped), false);
-            }            
+            }
         }
 
         private class PassData
@@ -314,14 +315,16 @@ namespace UnityEngine.Rendering.Universal
                     builder.UseRendererList(passData.rendererListHdl);
                 }
 
-                builder.AllowPassCulling(false);
                 builder.AllowGlobalStateModification(true);
                 if (cameraData.xr.enabled)
+                {
                     builder.EnableFoveatedRasterization(cameraData.xr.supportsFoveatedRendering && cameraData.xrUniversal.canFoveateIntermediatePasses);
+                    builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                }
 
                 builder.SetRenderFunc((PassData data, RasterGraphContext rgContext) =>
                 {
-                    var isYFlipped = data.cameraData.IsRenderTargetProjectionMatrixFlipped(data.color);
+                    var isYFlipped = RenderingUtils.IsHandleYFlipped(rgContext, in data.color);
                     ExecutePass(data, rgContext.cmd, data.rendererListHdl, isYFlipped);
                 });
             }

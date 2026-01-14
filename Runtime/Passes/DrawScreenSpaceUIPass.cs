@@ -1,7 +1,6 @@
 using System;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering.RenderGraphModule;
-using UnityEngine.Rendering.Universal.Internal;
 
 namespace UnityEngine.Rendering.Universal
 {
@@ -10,15 +9,15 @@ namespace UnityEngine.Rendering.Universal
     /// </summary>
     internal class DrawScreenSpaceUIPass : ScriptableRenderPass
     {
-        PassData m_PassData;
         RTHandle m_ColorTarget;
         RTHandle m_DepthTarget;
 
         // Whether to render on an offscreen render texture or on the current active render target
         bool m_RenderOffscreen;
 
-        static readonly int s_CameraDepthTextureID = Shader.PropertyToID("_CameraDepthTexture");
-        static readonly int s_CameraOpaqueTextureID = Shader.PropertyToID("_CameraOpaqueTexture");
+#if URP_COMPATIBILITY_MODE
+        PassData m_PassData;
+#endif
 
         /// <summary>
         /// Creates a new <c>DrawScreenSpaceUIPass</c> instance.
@@ -29,9 +28,12 @@ namespace UnityEngine.Rendering.Universal
         {
             profilingSampler = ProfilingSampler.Get(URPProfileId.DrawScreenSpaceUI);
             renderPassEvent = evt;
-            useNativeRenderPass = false;
             m_RenderOffscreen = renderOffscreen;
+
+#if URP_COMPATIBILITY_MODE
+            useNativeRenderPass = false;
             m_PassData = new PassData();
+#endif
         }
 
         /// <summary>
@@ -41,7 +43,7 @@ namespace UnityEngine.Rendering.Universal
         /// <param name="cameraWidth">Unscaled pixel width of the camera.</param>
         /// <param name="cameraHeight">Unscaled pixel height of the camera.</param>
         /// <seealso cref="RenderTextureDescriptor"/>
-        public static void ConfigureColorDescriptor(ref RenderTextureDescriptor descriptor, int cameraWidth, int cameraHeight)
+        private static void ConfigureColorDescriptor(ref RenderTextureDescriptor descriptor, int cameraWidth, int cameraHeight)
         {
             descriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_SRGB;
             descriptor.depthStencilFormat = GraphicsFormat.None;
@@ -50,19 +52,30 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <summary>
+        /// Get a descriptor for the required color texture for offscreen UI pass.
+        /// </summary>
+        internal static void ConfigureOffscreenUITextureDesc(ref TextureDesc textureDesc)
+        {
+            textureDesc.format = GraphicsFormat.R8G8B8A8_SRGB;
+            textureDesc.depthBufferBits = 0;
+            textureDesc.width = Screen.width;
+            textureDesc.height = Screen.height;
+        }
+
+        /// <summary>
         /// Get a descriptor for the required depth texture for this pass.
         /// </summary>
         /// <param name="descriptor">Camera target descriptor.</param>
         /// <param name="depthStencilFormat">Depth stencil format required.</param>
-        /// <param name="cameraWidth">Unscaled pixel width of the camera.</param>
-        /// <param name="cameraHeight">Unscaled pixel height of the camera.</param>
+        /// <param name="targetWidth">The target texture width.</param>
+        /// <param name="targetHeight">The target texture height.</param>
         /// <seealso cref="RenderTextureDescriptor"/>
-        public static void ConfigureDepthDescriptor(ref RenderTextureDescriptor descriptor, GraphicsFormat depthStencilFormat, int cameraWidth, int cameraHeight)
+        private static void ConfigureDepthDescriptor(ref RenderTextureDescriptor descriptor, GraphicsFormat depthStencilFormat, int targetWidth, int targetHeight)
         {
             descriptor.graphicsFormat = GraphicsFormat.None;
             descriptor.depthStencilFormat = depthStencilFormat;
-            descriptor.width = cameraWidth;
-            descriptor.height = cameraHeight;
+            descriptor.width = targetWidth;
+            descriptor.height = targetHeight;
         }
 
         private static void ExecutePass(RasterCommandBuffer commandBuffer, PassData passData, RendererList rendererList)
@@ -102,8 +115,9 @@ namespace UnityEngine.Rendering.Universal
             }
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             if(m_RenderOffscreen)
@@ -144,7 +158,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             using (new ProfilingScope(renderingData.commandBuffer, profilingSampler))
@@ -153,6 +167,7 @@ namespace UnityEngine.Rendering.Universal
                 ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(renderingData.commandBuffer), m_PassData, rendererList);
             }
         }
+#endif
 
         //RenderGraph path
         private class PassData
@@ -167,14 +182,11 @@ namespace UnityEngine.Rendering.Universal
             internal TextureHandle colorTarget;
         }
 
-        internal void RenderOffscreen(RenderGraph renderGraph, ContextContainer frameData, GraphicsFormat depthStencilFormat, out TextureHandle output)
+        internal void RenderOffscreen(RenderGraph renderGraph, ContextContainer frameData, GraphicsFormat depthStencilFormat, TextureHandle overlayUITexture)
         {
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
-            RenderTextureDescriptor colorDescriptor = cameraData.cameraTargetDescriptor;
-            ConfigureColorDescriptor(ref colorDescriptor, cameraData.pixelWidth, cameraData.pixelHeight);
-            output = UniversalRenderer.CreateRenderGraphTexture(renderGraph, colorDescriptor, "_OverlayUITexture", true);
             RenderTextureDescriptor depthDescriptor = cameraData.cameraTargetDescriptor;
-            ConfigureDepthDescriptor(ref depthDescriptor, depthStencilFormat, cameraData.pixelWidth, cameraData.pixelHeight);
+            ConfigureDepthDescriptor(ref depthDescriptor, depthStencilFormat, Screen.width, Screen.height);
             TextureHandle depthBuffer = UniversalRenderer.CreateRenderGraphTexture(renderGraph, depthDescriptor, "_OverlayUITexture_Depth", false);
 
             // Render uGUI and UIToolkit overlays
@@ -183,18 +195,19 @@ namespace UnityEngine.Rendering.Universal
                 // UIToolkit/uGUI pass accept custom shaders, we need to make sure we use all global textures
                 builder.UseAllGlobalTextures(true);
 
-                builder.SetRenderAttachment(output, 0);
+                builder.SetRenderAttachment(overlayUITexture, 0);
 
                 passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.UIToolkit_UGUI);
                 builder.UseRendererList(passData.rendererList);
 
                 builder.SetRenderAttachmentDepth(depthBuffer, AccessFlags.ReadWrite);
 
-                if (output.IsValid())
-                    builder.SetGlobalTextureAfterPass(output, ShaderPropertyId.overlayUITexture);
+                if (overlayUITexture.IsValid())
+                    builder.SetGlobalTextureAfterPass(overlayUITexture, ShaderPropertyId.overlayUITexture);
 
                 builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
                 {
+                    context.cmd.ClearRenderTarget(true, true, Color.clear);
                     ExecutePass(context.cmd, data, data.rendererList);
                 });
             }
@@ -204,8 +217,8 @@ namespace UnityEngine.Rendering.Universal
             // Note, these specific UI calls doesn't need depth buffer unlike UIToolkit/uGUI
             using (var builder = renderGraph.AddUnsafePass<UnsafePassData>("Draw Screen Space IMGUI/SoftwareCursor - Offscreen", out var passData, profilingSampler))
             {
-                passData.colorTarget = output;
-                builder.UseTexture(output, AccessFlags.Write);
+                passData.colorTarget = overlayUITexture;
+                builder.UseTexture(overlayUITexture, AccessFlags.Write);
 
                 passData.rendererList = renderGraph.CreateUIOverlayRendererList(cameraData.camera, UISubset.LowLevel);
                 builder.UseRendererList(passData.rendererList);

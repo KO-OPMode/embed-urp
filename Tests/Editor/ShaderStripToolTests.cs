@@ -25,9 +25,12 @@ namespace ShaderStrippingAndPrefiltering
             public bool strip2DPasses { get; set; }
             public bool stripDebugDisplayShaders { get; set; }
             public bool stripScreenCoordOverrideVariants { get; set; }
+            public bool stripBicubicLightmapSamplingVariants { get; set; }
+            public bool stripReflectionProbeRotationVariants { get; set; }
             public bool stripUnusedVariants { get; set; }
             public bool stripUnusedPostProcessingVariants { get; set; }
             public bool stripUnusedXRVariants { get; set; }
+            public bool usesDynamicLightmaps { get; set; }
 
             public Shader shader { get; set; }
             public ShaderType shaderType { get; set; }
@@ -39,6 +42,7 @@ namespace ShaderStrippingAndPrefiltering
 
             public bool IsHDRDisplaySupportEnabled { get; set; }
             public bool IsHDRShaderVariantValid { get; set; }
+            public bool IsRenderCompatibilityMode { get; set; }
 
 
             public bool IsKeywordEnabled(LocalKeyword keyword)
