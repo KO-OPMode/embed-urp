@@ -10,14 +10,17 @@ namespace UnityEngine.Rendering.Universal.Internal
     /// You can use this pass to prime a depth buffer for subsequent rendering.
     /// Use it as a z-prepass, or use it to generate a depth buffer.
     /// </summary>
-    public class DepthOnlyPass : ScriptableRenderPass
+    public partial class DepthOnlyPass : ScriptableRenderPass
     {
-        private RTHandle destination { get; set; }
-        private GraphicsFormat depthStencilFormat;
         internal ShaderTagId shaderTagId { get; set; } = k_ShaderTagId;
 
-        private PassData m_PassData;
         FilteringSettings m_FilteringSettings;
+
+#if URP_COMPATIBILITY_MODE
+        private RTHandle destination { get; set; }
+        private GraphicsFormat depthStencilFormat;
+        private PassData m_PassData;
+#endif
 
         // Statics
         private static readonly ShaderTagId k_ShaderTagId = new ShaderTagId("DepthOnly");
@@ -35,11 +38,14 @@ namespace UnityEngine.Rendering.Universal.Internal
         public DepthOnlyPass(RenderPassEvent evt, RenderQueueRange renderQueueRange, LayerMask layerMask)
         {
             profilingSampler = new ProfilingSampler("Draw Depth Only");
-            m_PassData = new PassData();
             m_FilteringSettings = new FilteringSettings(renderQueueRange, layerMask);
             renderPassEvent = evt;
-            useNativeRenderPass = false;
             this.shaderTagId = k_ShaderTagId;
+
+#if URP_COMPATIBILITY_MODE
+            useNativeRenderPass = false;
+            m_PassData = new PassData();
+#endif
         }
 
         /// <summary>
@@ -54,12 +60,15 @@ namespace UnityEngine.Rendering.Universal.Internal
             RenderTextureDescriptor baseDescriptor,
             RTHandle depthAttachmentHandle)
         {
+#if URP_COMPATIBILITY_MODE
             this.destination = depthAttachmentHandle;
             this.depthStencilFormat = baseDescriptor.depthStencilFormat;
+#endif
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc />
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             var desc = renderingData.cameraData.cameraTargetDescriptor;
@@ -84,6 +93,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             #pragma warning restore CS0618
         }
+#endif
 
         private static void ExecutePass(RasterCommandBuffer cmd, RendererList rendererList)
         {
@@ -93,8 +103,9 @@ namespace UnityEngine.Rendering.Universal.Internal
             }
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             ContextContainer frameData = renderingData.frameData;
@@ -107,6 +118,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(renderingData.commandBuffer), rendererList);
         }
+#endif
 
         private class PassData
         {
@@ -118,10 +130,11 @@ namespace UnityEngine.Rendering.Universal.Internal
             var sortFlags = cameraData.defaultOpaqueSortFlags;
             var drawSettings = RenderingUtils.CreateDrawingSettings(this.shaderTagId, renderingData, cameraData, lightData, sortFlags);
             drawSettings.perObjectData = PerObjectData.None;
+            drawSettings.lodCrossFadeStencilMask = 0; // For stencil-based Lod, we use texture dither instead of stencil testing because we have the same shader variants for cross-fade shadow.
             return new RendererListParams(renderingData.cullResults, drawSettings, m_FilteringSettings);
         }
 
-        internal void Render(RenderGraph renderGraph, ContextContainer frameData, ref TextureHandle cameraDepthTexture, uint batchLayerMask, bool setGlobalDepth)
+        internal void Render(RenderGraph renderGraph, ContextContainer frameData, in TextureHandle depthTexture, uint batchLayerMask, bool setGlobalDepth)
         {
             UniversalRenderingData renderingData = frameData.Get<UniversalRenderingData>();
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
@@ -134,16 +147,17 @@ namespace UnityEngine.Rendering.Universal.Internal
                 passData.rendererList = renderGraph.CreateRendererList(param);
                 builder.UseRendererList(passData.rendererList);
 
-                builder.SetRenderAttachmentDepth(cameraDepthTexture, AccessFlags.Write);
+                builder.SetRenderAttachmentDepth(depthTexture, AccessFlags.ReadWrite);
 
                 if (setGlobalDepth)
-                    builder.SetGlobalTextureAfterPass(cameraDepthTexture, s_CameraDepthTextureID);
+                    builder.SetGlobalTextureAfterPass(depthTexture, s_CameraDepthTextureID);
 
-                //  TODO RENDERGRAPH: culling? force culling off for testing
-                builder.AllowPassCulling(false);
                 builder.AllowGlobalStateModification(true);
                 if (cameraData.xr.enabled)
+                {
                     builder.EnableFoveatedRasterization(cameraData.xr.supportsFoveatedRendering && cameraData.xrUniversal.canFoveateIntermediatePasses);
+                    builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                }
 
                 builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
                 {

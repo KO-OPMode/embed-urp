@@ -162,6 +162,8 @@ namespace UnityEngine.Rendering.Universal
             }
         }
 
+        internal bool IsDepthPrimingCompatible => RenderingSettings.sceneOverrideMode != DebugSceneOverrideMode.Wireframe;
+
         internal int stpDebugViewIndex { get { return RenderingSettings.stpDebugViewIndex; } }
 
         internal DebugHandler()
@@ -439,7 +441,6 @@ namespace UnityEngine.Rendering.Universal
                 if (m_DebugFontTexture != null)
                     passData.debugFontTextureHandle = renderGraph.ImportTexture(m_DebugFontTexture);
 
-                builder.AllowPassCulling(false);
                 builder.AllowGlobalStateModification(true);
 
                 if (passData.debugRenderTargetHandle.IsValid())
@@ -539,7 +540,6 @@ namespace UnityEngine.Rendering.Universal
             using (var builder = renderGraph.AddRasterRenderPass<DebugSetupPassData>(s_DebugSetupSampler.name, out var passData, s_DebugSetupSampler))
             {
                 InitDebugSetupPassData(passData, isPreviewCamera);
-                builder.AllowPassCulling(false);
                 builder.AllowGlobalStateModification(true);
                 builder.SetRenderFunc(static (DebugSetupPassData data, RasterGraphContext context) =>
                 {

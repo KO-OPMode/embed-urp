@@ -7,11 +7,7 @@ using UnityEngine.Rendering.Universal;
 // This pass creates an RTHandle and blits the camera color to it after rendering transparent objects.
 // The RTHandle is then set as a global texture, which is available to shaders in the scene. The RTHandle is preserved in all frames while the renderer feature is running to create a recursive rendering effect.
 public class BlitToRTHandlePass : ScriptableRenderPass
-{
-    private class PassData
-    {
-    }
-    
+{   
     private ProfilingSampler m_ProfilingSampler = new ProfilingSampler("BlitToRTHandle_CopyColor");
     private RTHandle m_InputHandle;
     private RTHandle m_OutputHandle;
@@ -25,6 +21,7 @@ public class BlitToRTHandlePass : ScriptableRenderPass
         m_Material = mat;
     }
 
+#if URP_COMPATIBILITY_MODE // Compatibility Mode is being removed
 #pragma warning disable 618, 672 // Type or member is obsolete, Member overrides obsolete member
 
     // Unity calls the Configure method in the Compatibility mode (non-RenderGraph path)
@@ -61,6 +58,7 @@ public class BlitToRTHandlePass : ScriptableRenderPass
     }
 
 #pragma warning restore 618, 672
+#endif
 
     // Unity calls the RecordRenderGraph method to add and configure one or more render passes in the render graph system.
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)

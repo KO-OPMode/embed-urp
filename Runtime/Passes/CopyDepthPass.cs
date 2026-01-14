@@ -13,13 +13,10 @@ namespace UnityEngine.Rendering.Universal.Internal
     /// does not have MSAA enabled, the pass uses a Blit or a Copy Texture
     /// operation, depending on what the current platform supports.
     /// </summary>
-    public class CopyDepthPass : ScriptableRenderPass
+    public partial class CopyDepthPass : ScriptableRenderPass
     {
-        private RTHandle source { get; set; }
-        private RTHandle destination { get; set; }
-
         // TODO RENDERGRAPH: The Render method overwrites this property with -1 before doing anything else. It should only be used in Compatibility Mode!
-        internal int MssaSamples { get; set; }
+        internal int MsaaSamples { get; set; }
         // In some cases (Scene view, XR and etc.) we actually want to output to depth buffer
         // So this variable needs to be set to true to enable the correct copy shader semantic
         internal bool CopyToDepth { get; set; }
@@ -30,8 +27,14 @@ namespace UnityEngine.Rendering.Universal.Internal
         Material m_CopyDepthMaterial;
 
         internal bool m_CopyResolvedDepth;
+
+#if URP_COMPATIBILITY_MODE
+        private RTHandle source { get; set; }
+        private RTHandle destination { get; set; }
+
         internal bool m_ShouldClear;
         private PassData m_PassData;
+#endif
 
         /// <summary>
         /// Shader resource ids used to communicate with the shader implementation
@@ -56,14 +59,17 @@ namespace UnityEngine.Rendering.Universal.Internal
         public CopyDepthPass(RenderPassEvent evt, Shader copyDepthShader, bool shouldClear = false, bool copyToDepth = false, bool copyResolvedDepth = false, string customPassName = null)
         {
             profilingSampler = customPassName != null ? new ProfilingSampler(customPassName) : ProfilingSampler.Get(URPProfileId.CopyDepth);
-            m_PassData = new PassData();
             CopyToDepth = copyToDepth;
             m_CopyDepthMaterial = copyDepthShader != null ? CoreUtils.CreateEngineMaterial(copyDepthShader) : null;
             renderPassEvent = evt;
             m_CopyResolvedDepth = copyResolvedDepth;
-            m_ShouldClear = shouldClear;
             CopyToDepthXR = false;
             CopyToBackbuffer = false;
+
+#if URP_COMPATIBILITY_MODE
+            m_PassData = new PassData();
+            m_ShouldClear = shouldClear;
+#endif
         }
 
         /// <summary>
@@ -73,9 +79,11 @@ namespace UnityEngine.Rendering.Universal.Internal
         /// <param name="destination">Destination Render Target</param>
         public void Setup(RTHandle source, RTHandle destination)
         {
+#if URP_COMPATIBILITY_MODE
             this.source = source;
             this.destination = destination;
-            this.MssaSamples = -1;
+#endif
+            this.MsaaSamples = -1;
         }
 
         /// <summary>
@@ -86,8 +94,9 @@ namespace UnityEngine.Rendering.Universal.Internal
             CoreUtils.Destroy(m_CopyDepthMaterial);
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc />
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             // Disable obsolete warning for internal usage
@@ -106,10 +115,12 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             #pragma warning restore CS0618
         }
+#endif
 
         private class PassData
         {
             internal TextureHandle source;
+            internal TextureHandle destination;
             internal UniversalCameraData cameraData;
             internal Material copyDepthMaterial;
             internal int msaaSamples;
@@ -118,14 +129,15 @@ namespace UnityEngine.Rendering.Universal.Internal
             internal bool isDstBackbuffer;
         }
 
+#if URP_COMPATIBILITY_MODE
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             var cameraData = renderingData.frameData.Get<UniversalCameraData>();
 
             m_PassData.copyDepthMaterial = m_CopyDepthMaterial;
-            m_PassData.msaaSamples = MssaSamples;
+            m_PassData.msaaSamples = MsaaSamples;
             m_PassData.copyResolvedDepth = m_CopyResolvedDepth;
             m_PassData.copyToDepth = CopyToDepth || CopyToDepthXR;
             m_PassData.isDstBackbuffer = CopyToBackbuffer || CopyToDepthXR;
@@ -140,10 +152,14 @@ namespace UnityEngine.Rendering.Universal.Internal
                     cmd.SetFoveatedRenderingMode(FoveatedRenderingMode.Disabled);
             }
 #endif
-            ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(cmd), m_PassData, this.source);
-        }
 
-        private static void ExecutePass(RasterCommandBuffer cmd, PassData passData, RTHandle source)
+            // We must perform a yflip if we're rendering into the backbuffer and we have a flipped source texture.
+            bool yflip = m_PassData.isDstBackbuffer && cameraData.IsHandleYFlipped(source);
+            ExecutePass(CommandBufferHelpers.GetRasterCommandBuffer(cmd), m_PassData, this.source, yflip);
+        }
+#endif
+
+        private static void ExecutePass(RasterCommandBuffer cmd, PassData passData, RTHandle source, bool yflip)
         {
             var copyDepthMaterial = passData.copyDepthMaterial;
             var msaaSamples = passData.msaaSamples;
@@ -158,17 +174,20 @@ namespace UnityEngine.Rendering.Universal.Internal
             using (new ProfilingScope(cmd, ProfilingSampler.Get(URPProfileId.CopyDepth)))
             {
                 int cameraSamples = 0;
-                if (msaaSamples == -1)
+
+                // When depth resolve is supported and requested, or multisampled texture is not supported, force camera samples to 1
+                if (copyResolvedDepth || SystemInfo.supportsMultisampledTextures == 0)
                 {
-                    RTHandle sourceTex = source;
-                    cameraSamples = sourceTex.rt.antiAliasing;
+                    cameraSamples = 1;
+                }
+                else if (msaaSamples == -1) // RG path
+                {
+                    cameraSamples = source.rt.antiAliasing;
                 }
                 else
+                {
                     cameraSamples = msaaSamples;
-
-                // When depth resolve is supported or multisampled texture is not supported, set camera samples to 1
-                if (SystemInfo.supportsMultisampledTextures == 0 || copyResolvedDepth)
-                    cameraSamples = 1;
+                }
 
                 switch (cameraSamples)
                 {
@@ -190,7 +209,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                         cmd.SetKeyword(ShaderGlobalKeywords.DepthMsaa8, false);
                         break;
 
-                    // MSAA disabled, auto resolve supported or ms textures not supported
+                    // MSAA disabled, auto resolve supported, resolve texture requested, or ms textures not supported
                     default:
                         cmd.SetKeyword(ShaderGlobalKeywords.DepthMsaa2, false);
                         cmd.SetKeyword(ShaderGlobalKeywords.DepthMsaa4, false);
@@ -199,9 +218,6 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
 
                 cmd.SetKeyword(ShaderGlobalKeywords._OUTPUT_DEPTH, copyToDepth);
-
-                // We must perform a yflip if we're rendering into the backbuffer and we have a flipped source texture.
-                bool yflip = passData.cameraData.IsHandleYFlipped(source) && passData.isDstBackbuffer;
 
                 Vector2 viewportScale = source.useScaling ? new Vector2(source.rtHandleProperties.rtHandleScale.x, source.rtHandleProperties.rtHandleScale.y) : Vector2.one;
                 Vector4 scaleBias = yflip ? new Vector4(viewportScale.x, -viewportScale.y, 0, viewportScale.y) : new Vector4(viewportScale.x, viewportScale.y, 0, 0);
@@ -215,10 +231,11 @@ namespace UnityEngine.Rendering.Universal.Internal
                 Blitter.BlitTexture(cmd, source, scaleBias, copyDepthMaterial, 0);
             }
         }
-
+        
         /// <inheritdoc/>
         public override void OnCameraCleanup(CommandBuffer cmd)
         {
+#if URP_COMPATIBILITY_MODE
             if (cmd == null)
                 throw new ArgumentNullException("cmd");
 
@@ -226,6 +243,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             #pragma warning disable CS0618
             destination = k_CameraTarget;
             #pragma warning restore CS0618
+#endif
         }
 
         /// <summary>
@@ -257,17 +275,22 @@ namespace UnityEngine.Rendering.Universal.Internal
         public void Render(RenderGraph renderGraph, TextureHandle destination, TextureHandle source, UniversalResourceData resourceData, UniversalCameraData cameraData, bool bindAsCameraDepth = false, string passName = "Copy Depth")
         {
             // TODO RENDERGRAPH: should call the equivalent of Setup() to initialise everything correctly
-            MssaSamples = -1;
+            MsaaSamples = -1;
 
-            //Having a different pass name than profilingSampler.name is bad practice but this method was public before we cleaned up this naming 
+            // Having a different pass name than profilingSampler.name is bad practice but this method was public before we cleaned up this naming
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(passName, out var passData, profilingSampler))
             {
                 passData.copyDepthMaterial = m_CopyDepthMaterial;
-                passData.msaaSamples = MssaSamples;
+                passData.msaaSamples = MsaaSamples;
                 passData.cameraData = cameraData;
                 passData.copyResolvedDepth = m_CopyResolvedDepth;
                 passData.copyToDepth = CopyToDepth || CopyToDepthXR;
                 passData.isDstBackbuffer = CopyToBackbuffer || CopyToDepthXR;
+
+                if (cameraData.xr.enabled)
+                {
+                    builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                }
 
                 if (CopyToDepth)
                 {
@@ -276,7 +299,8 @@ namespace UnityEngine.Rendering.Universal.Internal
 #if UNITY_EDITOR
                     // binding a dummy color target as a workaround to an OSX issue in Editor scene view (UUM-47698).
                     // Also required for preview camera rendering for grid drawn with builtin RP (UUM-55171).
-                    if (cameraData.isSceneViewCamera || cameraData.isPreviewCamera)
+                    // Also required for render gizmos (UUM-91335).
+                    if (cameraData.isSceneViewCamera || cameraData.isPreviewCamera || UnityEditor.Handles.ShouldRenderGizmos())
                         builder.SetRenderAttachment(resourceData.activeColorTexture, 0);
 #endif
                 }
@@ -319,18 +343,18 @@ namespace UnityEngine.Rendering.Universal.Internal
                 }
 
                 passData.source = source;
+                passData.destination = destination;
                 builder.UseTexture(source, AccessFlags.Read);
 
                 if (bindAsCameraDepth && destination.IsValid())
                     builder.SetGlobalTextureAfterPass(destination, ShaderConstants._CameraDepthTexture);
 
-                // TODO RENDERGRAPH: culling? force culling off for testing
-                builder.AllowPassCulling(false);
                 builder.AllowGlobalStateModification(true);
 
                 builder.SetRenderFunc((PassData data, RasterGraphContext context) =>
                 {
-                    ExecutePass(context.cmd, data, data.source);
+                    bool yflip = context.GetTextureUVOrigin(in data.source) != context.GetTextureUVOrigin(in data.destination);
+                    ExecutePass(context.cmd, data, data.source, yflip);
                 });
             }
         }

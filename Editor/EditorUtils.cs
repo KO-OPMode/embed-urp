@@ -28,6 +28,9 @@ namespace UnityEditor.Rendering.Universal
 
             public static readonly GUIContent alembicMotionVectors = EditorGUIUtility.TrTextContent("Alembic Motion Vectors",
                 "When enabled, the material will use motion vectors from the Alembic animation cache. Should not be used on regular meshes or Alembic caches without precomputed motion vectors.");
+
+            public static readonly GUIContent xrMotionVectorsPass = EditorGUIUtility.TrTextContent("XR Motion Vectors Pass (Space Warp)",
+                "When enabled, the material will run the XR motion vectors pass to be compatible with Space Warp.");
         }
 
         internal static void FeatureHelpBox(string message, MessageType type)
@@ -64,17 +67,6 @@ namespace UnityEditor.Rendering.Universal
                     EditorApplication.delayCall += () =>
                         CoreEditorUtils.Highlight(currentPipeline.name, propertyPath, HighlightSearchMode.Identifier);
             });
-        }
-
-        internal static void DrawRenderingLayerMask(SerializedProperty property, GUIContent style)
-        {
-            var renderingLayer = property.uintValue;
-
-            EditorGUI.BeginChangeCheck();
-            renderingLayer = EditorGUILayout.RenderingLayerMaskField(style, renderingLayer);
-
-            if (EditorGUI.EndChangeCheck())
-                property.uintValue = renderingLayer;
         }
     }
 }

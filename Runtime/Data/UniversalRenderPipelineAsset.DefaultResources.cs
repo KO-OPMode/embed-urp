@@ -10,7 +10,7 @@ namespace UnityEngine.Rendering.Universal
         Terrain,
         Sprite,
         SpriteMask,
-        Decal
+        Decal,
     }
 
     public partial class UniversalRenderPipelineAsset

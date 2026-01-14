@@ -1,14 +1,14 @@
+#if URP_COMPATIBILITY_MODE
 using System;
 using System.Runtime.CompilerServices;
 using UnityEngine.Experimental.Rendering;
-using UnityEngine.Rendering.RenderGraphModule;
 
-namespace UnityEngine.Rendering.Universal
+namespace UnityEngine.Rendering.Universal.CompatibilityMode
 {
     /// <summary>
     /// Renders the post-processing effect stack.
     /// </summary>
-    internal partial class PostProcessPass : ScriptableRenderPass
+    internal class PostProcessPass : ScriptableRenderPass
     {
         RenderTextureDescriptor m_Descriptor;
         RTHandle m_Source;
@@ -22,8 +22,8 @@ namespace UnityEngine.Rendering.Universal
         RTHandle m_PongTexture;
         RTHandle[] m_BloomMipDown;
         RTHandle[] m_BloomMipUp;
-        TextureHandle[] _BloomMipUp;
-        TextureHandle[] _BloomMipDown;
+        string[] m_BloomMipDownName;
+        string[] m_BloomMipUpName;
         RTHandle m_BlendTexture;
         RTHandle m_EdgeColorTexture;
         RTHandle m_EdgeStencilTexture;
@@ -120,8 +120,7 @@ namespace UnityEngine.Rendering.Universal
 
         Material m_BlitMaterial;
 
-        // Cached bloom params from previous frame to avoid unnecessary material updates
-        BloomMaterialParams m_BloomParamsPrev;
+        internal bool useLensFlare => !LensFlareCommonSRP.Instance.IsEmpty() && m_SupportDataDrivenLensFlare;
 
         /// <summary>
         /// Creates a new <c>PostProcessPass</c> instance.
@@ -139,23 +138,15 @@ namespace UnityEngine.Rendering.Universal
             m_Data = data;
             m_Materials = new MaterialLibrary(data);
 
-            // Bloom pyramid shader ids - can't use a simple stackalloc in the bloom function as we
-            // unfortunately need to allocate strings
-            ShaderConstants._BloomMipUp = new int[k_MaxPyramidSize];
-            ShaderConstants._BloomMipDown = new int[k_MaxPyramidSize];
             m_BloomMipUp = new RTHandle[k_MaxPyramidSize];
             m_BloomMipDown = new RTHandle[k_MaxPyramidSize];
-            // Bloom pyramid TextureHandles
-            _BloomMipUp = new TextureHandle[k_MaxPyramidSize];
-            _BloomMipDown = new TextureHandle[k_MaxPyramidSize];
+            m_BloomMipDownName = new string[k_MaxPyramidSize];
+            m_BloomMipUpName = new string[k_MaxPyramidSize];
 
             for (int i = 0; i < k_MaxPyramidSize; i++)
             {
-                ShaderConstants._BloomMipUp[i] = Shader.PropertyToID("_BloomMipUp" + i);
-                ShaderConstants._BloomMipDown[i] = Shader.PropertyToID("_BloomMipDown" + i);
-                // Get name, will get Allocated with descriptor later
-                m_BloomMipUp[i] = RTHandles.Alloc(ShaderConstants._BloomMipUp[i], name: "_BloomMipUp" + i);
-                m_BloomMipDown[i] = RTHandles.Alloc(ShaderConstants._BloomMipDown[i], name: "_BloomMipDown" + i);
+                m_BloomMipUpName[i] = "_BloomMipUp" + i;
+                m_BloomMipDownName[i] = "_BloomMipDown" + i;
             }
 
             m_MRT2 = new RenderTargetIdentifier[2];
@@ -314,7 +305,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             overrideCameraTarget = true;
@@ -327,7 +318,7 @@ namespace UnityEngine.Rendering.Universal
         }
 
         /// <inheritdoc/>
-        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsolete, false)]
+        [Obsolete(DeprecationMessage.CompatibilityScriptingAPIObsoleteFrom2023_3)]
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             // Start by pre-fetching all builtin effect settings we need
@@ -425,7 +416,6 @@ namespace UnityEngine.Rendering.Universal
             bool useSubPixeMorpAA = cameraData.antialiasing == AntialiasingMode.SubpixelMorphologicalAntiAliasing;
             var dofMaterial = m_DepthOfField.mode.value == DepthOfFieldMode.Gaussian ? m_Materials.gaussianDepthOfField : m_Materials.bokehDepthOfField;
             bool useDepthOfField = m_DepthOfField.IsActive() && !isSceneViewCamera && dofMaterial != null;
-            bool useLensFlare = !LensFlareCommonSRP.Instance.IsEmpty() && m_SupportDataDrivenLensFlare;
             bool useLensFlareScreenSpace = m_LensFlareScreenSpace.IsActive() && m_SupportScreenSpaceLensFlare;
             bool useMotionBlur = m_MotionBlur.IsActive() && !isSceneViewCamera;
             bool usePaniniProjection = m_PaniniProjection.IsActive() && !isSceneViewCamera;
@@ -635,7 +625,7 @@ namespace UnityEngine.Rendering.Universal
                 // Setup other effects constants
                 SetupLensDistortion(m_Materials.uber, isSceneViewCamera);
                 SetupChromaticAberration(m_Materials.uber);
-                SetupVignette(m_Materials.uber, cameraData.xr);
+                SetupVignette(m_Materials.uber, cameraData.xr, m_Descriptor.width, m_Descriptor.height);
                 SetupColorGrading(cmd, ref renderingData, m_Materials.uber);
 
                 // Only apply dithering & grain if there isn't a final pass.
@@ -652,6 +642,7 @@ namespace UnityEngine.Rendering.Universal
                     // Otherwise encoding will happen in the final post process pass or the final blit pass
                     HDROutputUtils.Operation hdrOperation = !m_HasFinalPass && m_EnableColorEncodingIfNeeded ? HDROutputUtils.Operation.ColorEncoding : HDROutputUtils.Operation.None;
                     SetupHDROutput(cameraData.hdrDisplayInformation, cameraData.hdrDisplayColorGamut, m_Materials.uber, hdrOperation, cameraData.rendersOverlayUI);
+                    m_Materials.uber.SetVector(ShaderPropertyId.offscreenUIViewportParams, new Vector4(0f, 0f, 1f, 1f));
                 }
 
                 if (m_UseFastSRGBLinearConversion)
@@ -1257,8 +1248,8 @@ namespace UnityEngine.Rendering.Universal
         void DoPaniniProjection(Camera camera, CommandBuffer cmd, RTHandle source, RTHandle destination)
         {
             float distance = m_PaniniProjection.distance.value;
-            var viewExtents = CalcViewExtents(camera);
-            var cropExtents = CalcCropExtents(camera, distance);
+            var viewExtents = CalcViewExtents(camera, m_Descriptor.width, m_Descriptor.height);
+            var cropExtents = CalcCropExtents(camera, distance, m_Descriptor.width, m_Descriptor.height);
 
             float scaleX = cropExtents.x / viewExtents.x;
             float scaleY = cropExtents.y / viewExtents.y;
@@ -1276,10 +1267,10 @@ namespace UnityEngine.Rendering.Universal
             Blitter.BlitCameraTexture(cmd, source, destination, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, material, 0);
         }
 
-        Vector2 CalcViewExtents(Camera camera)
+        Vector2 CalcViewExtents(Camera camera, int width, int height)
         {
             float fovY = camera.fieldOfView * Mathf.Deg2Rad;
-            float aspect = m_Descriptor.width / (float)m_Descriptor.height;
+            float aspect = width / (float)height;
 
             float viewExtY = Mathf.Tan(0.5f * fovY);
             float viewExtX = aspect * viewExtY;
@@ -1287,7 +1278,7 @@ namespace UnityEngine.Rendering.Universal
             return new Vector2(viewExtX, viewExtY);
         }
 
-        Vector2 CalcCropExtents(Camera camera, float d)
+        Vector2 CalcCropExtents(Camera camera, float d, int width, int height)
         {
             // given
             //    S----------- E--X-------
@@ -1313,7 +1304,7 @@ namespace UnityEngine.Rendering.Universal
 
             float viewDist = 1f + d;
 
-            var projPos = CalcViewExtents(camera);
+            var projPos = CalcViewExtents(camera, width, height);
             var projHyp = Mathf.Sqrt(projPos.x * projPos.x + 1f);
 
             float cylDistMinusD = 1f / projHyp;
@@ -1366,8 +1357,8 @@ namespace UnityEngine.Rendering.Universal
             var desc = GetCompatibleDescriptor(tw, th, m_DefaultColorFormat);
             for (int i = 0; i < mipCount; i++)
             {
-                RenderingUtils.ReAllocateHandleIfNeeded(ref m_BloomMipUp[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_BloomMipUp[i].name);
-                RenderingUtils.ReAllocateHandleIfNeeded(ref m_BloomMipDown[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_BloomMipDown[i].name);
+                RenderingUtils.ReAllocateHandleIfNeeded(ref m_BloomMipUp[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_BloomMipUpName[i]);
+                RenderingUtils.ReAllocateHandleIfNeeded(ref m_BloomMipDown[i], desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: m_BloomMipDownName[i]);
                 desc.width = Mathf.Max(1, desc.width >> 1);
                 desc.height = Mathf.Max(1, desc.height >> 1);
             }
@@ -1485,11 +1476,11 @@ namespace UnityEngine.Rendering.Universal
 
 #region Vignette
 
-        void SetupVignette(Material material, XRPass xrPass)
+        void SetupVignette(Material material, XRPass xrPass, int width, int height)
         {
             var color = m_Vignette.color.value;
             var center = m_Vignette.center.value;
-            var aspectRatio = m_Descriptor.width / (float)m_Descriptor.height;
+            var aspectRatio = width / (float)height;
 
 
 #if ENABLE_VR && ENABLE_XR_MODULE
@@ -1637,6 +1628,7 @@ namespace UnityEngine.Rendering.Universal
                     hdrOperations |= HDROutputUtils.Operation.ColorConversion;
 
                 SetupHDROutput(cameraData.hdrDisplayInformation, cameraData.hdrDisplayColorGamut, material, hdrOperations, cameraData.rendersOverlayUI);
+                material.SetVector(ShaderPropertyId.offscreenUIViewportParams, new Vector4(0f, 0f, 1f, 1f));
             }
 
             CoreUtils.SetKeyword(material, ShaderKeywordStrings._ENABLE_ALPHA_OUTPUT, cameraData.isAlphaOutputEnabled);
@@ -1952,6 +1944,7 @@ namespace UnityEngine.Rendering.Universal
 
             public static readonly int _ColorTexture = Shader.PropertyToID("_ColorTexture");
             public static readonly int _Params = Shader.PropertyToID("_Params");
+            public static readonly int _Params2 = Shader.PropertyToID("_Params2");
             public static readonly int _SourceTexLowMip = Shader.PropertyToID("_SourceTexLowMip");
             public static readonly int _Bloom_Params = Shader.PropertyToID("_Bloom_Params");
             public static readonly int _Bloom_Texture = Shader.PropertyToID("_Bloom_Texture");
@@ -1990,11 +1983,9 @@ namespace UnityEngine.Rendering.Universal
             public static readonly int _FlareData5 = Shader.PropertyToID("_FlareData5");
 
             public static readonly int _FullscreenProjMat = Shader.PropertyToID("_FullscreenProjMat");
-
-            public static int[] _BloomMipUp;
-            public static int[] _BloomMipDown;
         }
 
 #endregion
     }
 }
+#endif

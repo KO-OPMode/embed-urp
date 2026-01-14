@@ -7,7 +7,7 @@ namespace UnityEngine.Rendering.Universal
     /// <summary>
     /// Class that holds settings related to camera.
     /// </summary>
-    public class UniversalCameraData : ContextItem
+    public partial class UniversalCameraData : ContextItem
     {
         // Internal camera data as we are not yet sure how to expose View in stereo context.
         // We might change this API soon.
@@ -121,7 +121,8 @@ namespace UnityEngine.Rendering.Universal
 #endif
             return m_ProjectionMatrix;
         }
-
+        
+#if URP_COMPATIBILITY_MODE
         /// <summary>
         /// Returns the camera GPU projection matrix. This contains platform specific changes to handle y-flip and reverse z. Includes camera jitter if required by active features.
         /// Similar to <c>GL.GetGPUProjectionMatrix</c> but queries URP internal state to know if the pipeline is rendering to render texture.
@@ -155,6 +156,7 @@ namespace UnityEngine.Rendering.Universal
             return GL.GetGPUProjectionMatrix(GetProjectionMatrixNoJitter(viewIndex), IsCameraProjectionMatrixFlipped());
             #pragma warning restore CS0618
         }
+#endif
 
         internal Matrix4x4 GetGPUProjectionMatrix(bool renderIntoTexture, int viewIndex = 0)
         {
@@ -171,15 +173,14 @@ namespace UnityEngine.Rendering.Universal
         /// By obtaining the pixelWidth of the camera and taking into account the render scale
         /// The min dimension is 1.
         /// </summary>
-        public int scaledWidth => Mathf.Max(1, (int)(camera.pixelWidth * renderScale));
+        public int scaledWidth;
 
         /// <summary>
         /// Returns the scaled height of the Camera
         /// By obtaining the pixelHeight of the camera and taking into account the render scale
         /// The min dimension is 1.
         /// </summary>
-        public int scaledHeight => Mathf.Max(1, (int)(camera.pixelHeight * renderScale));
-
+        public int scaledHeight;
 
         // NOTE: This is internal instead of private to allow ref return in the old CameraData compatibility property.
         // We can make this private when it is removed.
@@ -394,6 +395,18 @@ namespace UnityEngine.Rendering.Universal
         public bool rendersOverlayUI => SupportedRenderingFeatures.active.rendersUIOverlay && resolveToScreen;
 
         /// <summary>
+        /// Makes the Camera render the offscreen overlay UI needed for HDR outputs.
+        /// URP shares the offscreen texture between cameras once the first base camera renders it.
+        /// </summary>
+        internal bool rendersOffscreenUI;
+
+        /// <summary>
+        /// Makes the Camera blit the offscreen overlay UI cover for HDR outputs.
+        /// The offscreen UI cover prepass ensures the overlay UI covers the entire display even when the combined camera viewports do not fill the screen.
+        /// </summary>
+        internal bool blitsOffscreenUICover;
+
+        /// <summary>
         /// True is the handle has its content flipped on the y axis.
         /// This happens only with certain rendering APIs.
         /// On those platforms, any handle will have its content flipped unless rendering to a backbuffer, however,
@@ -420,7 +433,8 @@ namespace UnityEngine.Rendering.Universal
 #endif
             return !isBackbuffer;
         }
-
+        
+#if URP_COMPATIBILITY_MODE
         /// <summary>
         /// True if the camera device projection matrix is flipped. This happens when the pipeline is rendering
         /// to a render texture in non OpenGL platforms. If you are doing a custom Blit pass to copy camera textures
@@ -445,6 +459,7 @@ namespace UnityEngine.Rendering.Universal
 
             return true;
         }
+#endif
 
         /// <summary>
         /// True if the render target's projection matrix is flipped. This happens when the pipeline is rendering
@@ -704,6 +719,8 @@ namespace UnityEngine.Rendering.Universal
             isLastBaseCamera = false;
             stackAnyPostProcessingEnabled = false;
             stackLastCameraOutputToHDR = false;
+            rendersOffscreenUI = false;
+            blitsOffscreenUICover = false;
         }
     }
 }

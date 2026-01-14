@@ -372,10 +372,13 @@ namespace UnityEngine.Rendering.Universal
             if(reasonWarning == null && !cameraData.renderer.SupportsMotionVectors())
                 reasonWarning = "because the renderer does not implement motion vectors. Motion vectors are required.";
 
-            const int warningThrottleFrames = 60 * 1; // 60 FPS * 1 sec
-            if (s_warnCounter % warningThrottleFrames == 0)
-                Debug.LogWarning("Disabling TAA " + (isSTPRequested ? "and STP " : "") + reasonWarning);
-            s_warnCounter++;
+            if (reasonWarning != null)
+            {
+                const int warningThrottleFrames = 60 * 1; // 60 FPS * 1 sec
+                if (s_warnCounter % warningThrottleFrames == 0)
+                    Debug.LogWarning("Disabling TAA " + (isSTPRequested ? "and STP " : "") + reasonWarning);
+                s_warnCounter++;
+            }
 
             return reasonWarning;
         }
@@ -494,6 +497,11 @@ namespace UnityEngine.Rendering.Universal
                 passData.srcTaaAccumTex = srcAccumulation;
                 builder.UseTexture(srcAccumulation, AccessFlags.Read);
 
+                if (cameraData.xr.enabled)
+                {
+                    builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                }
+
                 passData.material = taaMaterial;
                 passData.passIndex = (int)taa.quality;
 
@@ -546,6 +554,11 @@ namespace UnityEngine.Rendering.Universal
                     builder.SetRenderAttachment(srcAccumulation, 0, AccessFlags.Write);
                     passData.srcColorTex = dstColor;
                     builder.UseTexture(dstColor, AccessFlags.Read);   // Resolved color is the new history
+
+                    if (cameraData.xr.enabled)
+                    {
+                        builder.SetExtendedFeatureFlags(ExtendedFeatureFlags.MultiviewRenderRegionsCompatible);
+                    }
 
                     passData.material = taaMaterial;
                     passData.passIndex = kHistoryCopyPass;

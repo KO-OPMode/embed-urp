@@ -68,7 +68,7 @@ Shader "Hidden/Universal Render Pipeline/XR/XRMotionVector"
                 // We can use the clip space as is because contrary to the convention mentioned in Common.hlsl (RP Core),
                 // this clip space is already Y-up
                 float3 posWS = ComputeWorldSpacePosition(output.position, UNITY_MATRIX_I_VP);
-
+                
                 // Multiply with current and previous non-jittered view projection
                 output.posCS = mul(_NonJitteredViewProjMatrix, float4(posWS, 1.0));
                 output.prevPosCS = mul(_PrevViewProjMatrix, float4(posWS, 1.0));
@@ -89,7 +89,7 @@ Shader "Hidden/Universal Render Pipeline/XR/XRMotionVector"
 
                 // Calculate forward velocity
                 float3 velocity = (posNDC - prevPosNDC);
-
+                
                 #if UNITY_UV_STARTS_AT_TOP
                 velocity.y = velocity.y * _SpaceWarpNDCModifier;
                 #endif
