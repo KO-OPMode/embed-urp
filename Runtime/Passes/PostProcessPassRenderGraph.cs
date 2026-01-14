@@ -2465,6 +2465,13 @@ namespace UnityEngine.Rendering.Universal
             internal bool isBackbuffer;
             internal bool enableAlphaOutput;
             internal bool hasFinalPass;
+
+            // ys custom start
+            internal Vector3 agXOffset;
+            internal Vector3 agXSlope;
+            internal Vector3 agXPower;
+            internal float agXSaturation;
+            // ys custom end
         }
 
         TextureHandle TryGetCachedUserLutTextureHandle(RenderGraph renderGraph)
@@ -2549,6 +2556,14 @@ namespace UnityEngine.Rendering.Universal
                 passData.cameraData = cameraData;
                 passData.material = material;
                 passData.toneMappingMode = m_Tonemapping.mode.value;
+                
+                // ys custom start
+                passData.agXOffset = m_Tonemapping.GetAgXOffset();
+                passData.agXSlope = m_Tonemapping.GetAgXSlope();
+                passData.agXPower = m_Tonemapping.GetAgXPower();
+                passData.agXSaturation = m_Tonemapping.GetAgXSaturation();
+                // ys custom end
+
                 passData.isHdrGrading = hdrGrading;
                 passData.enableAlphaOutput = enableAlphaOutput;
                 passData.hasFinalPass = hasFinalPass;
@@ -2577,8 +2592,19 @@ namespace UnityEngine.Rendering.Universal
                     {
                         switch (data.toneMappingMode)
                         {
+
                             case TonemappingMode.Neutral: CoreUtils.SetKeyword(material, ShaderKeywordStrings.TonemapNeutral, true); break;
                             case TonemappingMode.ACES: CoreUtils.SetKeyword(material, ShaderKeywordStrings.TonemapACES, true); break;
+                            // ys custom start
+                            case TonemappingMode.AgX: 
+                                CoreUtils.SetKeyword(material, ShaderKeywordStrings.TonemapAgX, true);
+                                material.SetVector(ShaderConstants._AgXOffset, data.agXOffset);
+                                material.SetVector(ShaderConstants._AgXSlope, data.agXSlope);
+                                material.SetVector(ShaderConstants._AgXPower, data.agXPower);
+                                material.SetFloat(ShaderConstants._AgXSaturation, data.agXSaturation);
+                                
+                                break;
+                            // ys custom end
                             default: break; // None
                         }
                     }

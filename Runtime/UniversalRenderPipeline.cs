@@ -20,6 +20,11 @@ namespace UnityEngine.Rendering.Universal
     /// </summary>
     public sealed partial class UniversalRenderPipeline : RenderPipeline
     {
+        // ys custom start
+        // Expose event for when we update our volume framework
+        public static event Action VolumesUpdated;
+        // ys custom end
+        
         /// <summary>
         /// The shader tag used in the Universal Render Pipeline (URP)
         /// </summary>
@@ -1299,6 +1304,17 @@ namespace UnityEngine.Rendering.Universal
             camera.GetVolumeLayerMaskAndTrigger(additionalCameraData, out LayerMask layerMask, out Transform trigger);
             VolumeManager.instance.ResetMainStack();
             VolumeManager.instance.Update(trigger, layerMask);
+            
+            // ys custom start
+            try
+            {
+                VolumesUpdated?.Invoke();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
+            // ys custom end
         }
 
         static bool CheckPostProcessForDepth(UniversalCameraData cameraData)
