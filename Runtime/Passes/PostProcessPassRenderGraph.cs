@@ -64,6 +64,13 @@ namespace UnityEngine.Rendering.Universal
             public static readonly int _Lut_Params = Shader.PropertyToID("_Lut_Params");
             public static readonly int _UserLut = Shader.PropertyToID("_UserLut");
             public static readonly int _UserLut_Params = Shader.PropertyToID("_UserLut_Params");
+
+            // ys custom start
+            public static readonly int _AgXOffset = Shader.PropertyToID("_AgXOffset");
+            public static readonly int _AgXSlope = Shader.PropertyToID("_AgXSlope");
+            public static readonly int _AgXPower = Shader.PropertyToID("_AgXPower");
+            public static readonly int _AgXSaturation = Shader.PropertyToID("_AgXSaturation");
+            // ys custom end
         }
 
         // TODO: move into post-process passes.
