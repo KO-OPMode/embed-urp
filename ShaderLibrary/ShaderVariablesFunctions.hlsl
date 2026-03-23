@@ -363,19 +363,16 @@ real ComputeFogFactorZ0ToFar(float z)
 
 real3 ComputeFogFactorSpherical(float3 positionVS)
 {
-    real rawDistance = length(positionVS.xyz);
-
-    // Convert to distance from the near clip plane
-    real nearClipDistance = max(rawDistance - _ProjectionParams.y, 0);
+    real distance = length(positionVS.xyz);
 
     // Multiply by 1/far plane and clamp to 0-1 range
-    real factor01 = saturate(nearClipDistance * _ProjectionParams.w);
+    real factor01 = saturate(distance * _ProjectionParams.w);
 
     // Remultiply into 0-far range
     // Yes, we could have just clamped above, but this gets us both the 0-far and 0-1 ranges without much extra math
     real fogFactor = ComputeFogFactorZ0ToFar(factor01 * _ProjectionParams.z);
 
-    return real3(fogFactor, rawDistance, factor01);
+    return real3(fogFactor, distance, factor01);
 }
 
 // ys custom end
