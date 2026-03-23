@@ -346,6 +346,40 @@ real ComputeFogFactorZ0ToFar(float z)
     return real(0.0);
 }
 
+// ys custom start
+// Unity's standard fog factor calculations are based on pure clip space z,
+// which represents a dramatically different distance as the camera rotates
+// (closer in the center of the screen, farther at the edges)
+// This can cause fog coloration to shift considerably on the same object as the camera rotates
+
+// This function takes a vertex position in view space and
+// calculates the fog factor based on true distance by returning a normalized 0 to 1 value
+// where 0 is "at the camera position" and 1 is "on or outside the sphere of radius equal to the far clip distance"
+// This is more expensive but provides a more stable output
+// It returns a real3 with three values:
+// x: the calculated fog factor
+// y: the raw distance from the camera,
+// z: the calculated 0-1 range value
+
+real3 ComputeFogFactorSpherical(float3 positionVS)
+{
+    real rawDistance = length(positionVS.xyz);
+
+    // Convert to distance from the near clip plane
+    real nearClipDistance = max(rawDistance - _ProjectionParams.y, 0);
+
+    // Multiply by 1/far plane and clamp to 0-1 range
+    real factor01 = saturate(nearClipDistance * _ProjectionParams.w);
+
+    // Remultiply into 0-far range
+    // Yes, we could have just clamped above, but this gets us both the 0-far and 0-1 ranges without much extra math
+    real fogFactor = ComputeFogFactorZ0ToFar(factor01 * _ProjectionParams.z);
+
+    return real3(fogFactor, rawDistance, factor01);
+}
+
+// ys custom end
+
 real ComputeFogFactor(float zPositionCS)
 {
     float clipZ_0Far = UNITY_Z_0_FAR_FROM_CLIPSPACE(zPositionCS);
