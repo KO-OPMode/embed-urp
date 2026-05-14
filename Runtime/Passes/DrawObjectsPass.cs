@@ -228,6 +228,11 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             var filterSettings = m_FilteringSettings;
             filterSettings.batchLayerMask = passData.batchLayerMask;
+
+            // ys custom start - respect the renderingLayerMask we've added to UniversalRenderingData (meant for characters for now)
+            filterSettings.renderingLayerMask = renderingData.renderingLayerMask;
+            // ys custom end
+
 #if UNITY_EDITOR
                 // When rendering the preview camera, we want the layer mask to be forced to Everything
                 if (cameraData.isPreviewCamera)

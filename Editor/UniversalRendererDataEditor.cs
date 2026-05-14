@@ -21,6 +21,9 @@ namespace UnityEditor.Rendering.Universal
             public static readonly GUIContent PrepassMask = EditorGUIUtility.TrTextContent("Prepass Layer Mask", "Controls which prepass layers this renderer draws. It applies to any prepass.");
             public static readonly GUIContent OpaqueMask = EditorGUIUtility.TrTextContent("Opaque Layer Mask", "Controls which opaque layers this renderer draws.");
             public static readonly GUIContent TransparentMask = EditorGUIUtility.TrTextContent("Transparent Layer Mask", "Controls which transparent layers this renderer draws.");
+            // ys custom start
+            public static readonly GUIContent RenderingMask = EditorGUIUtility.TrTextContent("Rendering Layer Mask", "Controls which rendering layers this renderer draws.");
+            // ys custom end
 
             public static readonly GUIContent RenderingSectionLabel = EditorGUIUtility.TrTextContent("Rendering", "Settings related to rendering and lighting.");
             public static readonly GUIContent RenderingModeLabel = EditorGUIUtility.TrTextContent("Rendering Path", "Select a rendering path.");
@@ -49,6 +52,9 @@ namespace UnityEditor.Rendering.Universal
         SerializedProperty m_PrepassLayerMask;
         SerializedProperty m_OpaqueLayerMask;
         SerializedProperty m_TransparentLayerMask;
+        // ys custom start
+        SerializedProperty m_RenderingLayerMask;
+        // ys custom end
         SerializedProperty m_RenderingMode;
         SerializedProperty m_DepthPrimingMode;
         SerializedProperty m_CopyDepthMode;
@@ -69,6 +75,9 @@ namespace UnityEditor.Rendering.Universal
             m_PrepassLayerMask = serializedObject.FindProperty("m_PrepassLayerMask");
             m_OpaqueLayerMask = serializedObject.FindProperty("m_OpaqueLayerMask");
             m_TransparentLayerMask = serializedObject.FindProperty("m_TransparentLayerMask");
+            // ys custom start
+            m_RenderingLayerMask = serializedObject.FindProperty("m_RenderingLayerMask");
+            // ys custom end
             m_RenderingMode = serializedObject.FindProperty("m_RenderingMode");
             m_DepthPrimingMode = serializedObject.FindProperty("m_DepthPrimingMode");
             m_CopyDepthMode = serializedObject.FindProperty("m_CopyDepthMode");
@@ -170,6 +179,9 @@ namespace UnityEditor.Rendering.Universal
                 EditorGUILayout.PropertyField(m_PrepassLayerMask, Styles.PrepassMask);
             EditorGUILayout.PropertyField(m_OpaqueLayerMask, Styles.OpaqueMask);
             EditorGUILayout.PropertyField(m_TransparentLayerMask, Styles.TransparentMask);
+            // ys custom start
+            EditorGUILayout.PropertyField(m_RenderingLayerMask, Styles.RenderingMask);
+            // ys custom end
             EditorGUI.indentLevel--;
             EditorGUILayout.Space();
 

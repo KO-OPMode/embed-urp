@@ -238,6 +238,9 @@ namespace UnityEngine.Rendering.Universal
         internal LayerMask prepassLayerMask { get; set; }
         internal LayerMask opaqueLayerMask { get; set; }
         internal LayerMask transparentLayerMask { get; set; }
+        // ys custom start
+        internal RenderingLayerMask renderingLayerMask { get; set; }
+        // ys custom end
         internal bool shadowTransparentReceive { get; set; }
 
         internal GraphicsFormat cameraDepthTextureFormat { get => (m_CameraDepthTextureFormat != DepthFormat.Default) ? (GraphicsFormat)m_CameraDepthTextureFormat : CoreUtils.GetDefaultDepthStencilFormat(); }
@@ -306,6 +309,9 @@ namespace UnityEngine.Rendering.Universal
 #endif
             opaqueLayerMask = data.opaqueLayerMask;
             transparentLayerMask = data.transparentLayerMask;
+            // ys custom start
+            renderingLayerMask = data.renderingLayerMask;
+            // ys custom end
             shadowTransparentReceive = data.shadowTransparentReceive;
             
             var asset = UniversalRenderPipeline.asset;

@@ -64,6 +64,13 @@ namespace UnityEngine.Rendering.Universal
         /// The layer mask set on the renderer to filter transparent objects.
         /// </summary>
         public LayerMask transparentLayerMask { get; internal set; }
+        
+        // ys custom start
+        /// <summary>
+        /// The rendering layer mask set on the renderer.
+        /// </summary>
+        public RenderingLayerMask renderingLayerMask { get; internal set; }
+        // ys custom end
 
         /// <summary>
         /// True if the Stencil Lod Cross fade is enabled.
@@ -84,6 +91,9 @@ namespace UnityEngine.Rendering.Universal
             prepassLayerMask = -1;
             opaqueLayerMask = -1;
             transparentLayerMask = -1;
+            // ys custom start
+            renderingLayerMask = -1;
+            // ys custom end
         }
     }
 }

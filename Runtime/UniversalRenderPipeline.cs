@@ -1755,6 +1755,9 @@ namespace UnityEngine.Rendering.Universal
                 data.prepassLayerMask = universalRenderer.prepassLayerMask;
                 data.opaqueLayerMask = universalRenderer.opaqueLayerMask;
                 data.transparentLayerMask = universalRenderer.transparentLayerMask;
+                // ys custom start
+                data.renderingLayerMask = universalRenderer.renderingLayerMask;
+                // ys custom end
             }
 
             data.stencilLodCrossFadeEnabled = settings.enableLODCrossFade && settings.lodCrossFadeDitheringType == LODCrossFadeDitheringType.Stencil;
