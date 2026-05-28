@@ -66,10 +66,17 @@ namespace UnityEngine.Rendering.Universal
         public LayerMask transparentLayerMask { get; internal set; }
         
         // ys custom start
+        
         /// <summary>
-        /// The rendering layer mask set on the renderer.
+        /// The opaque rendering layer mask set on the renderer.
         /// </summary>
-        public RenderingLayerMask renderingLayerMask { get; internal set; }
+        public RenderingLayerMask opaqueRenderingLayerMask { get; internal set; }
+        
+        /// <summary>
+        /// The transparent rendering layer mask set on the renderer.
+        /// </summary>
+        public RenderingLayerMask transparentRenderingLayerMask { get; internal set; }
+        
         // ys custom end
 
         /// <summary>
@@ -92,7 +99,8 @@ namespace UnityEngine.Rendering.Universal
             opaqueLayerMask = -1;
             transparentLayerMask = -1;
             // ys custom start
-            renderingLayerMask = -1;
+            opaqueRenderingLayerMask = -1;
+            transparentRenderingLayerMask = -1;
             // ys custom end
         }
     }

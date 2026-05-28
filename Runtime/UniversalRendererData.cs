@@ -139,7 +139,8 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField] LayerMask m_OpaqueLayerMask = -1;
         [SerializeField] LayerMask m_TransparentLayerMask = -1;
         // ys custom start
-        [SerializeField] RenderingLayerMask m_RenderingLayerMask = -1;
+        [SerializeField] RenderingLayerMask m_OpaqueRenderingLayerMask = -1;
+        [SerializeField] RenderingLayerMask m_TransparentRenderingLayerMask = -1;
         // ys custom end
         [SerializeField] StencilStateData m_DefaultStencilState = new StencilStateData() { passOperation = StencilOp.Replace }; // This default state is compatible with deferred renderer.
         [SerializeField] bool m_ShadowTransparentReceive = true;
@@ -208,18 +209,33 @@ namespace UnityEngine.Rendering.Universal
         }
         
         // ys custom start
+        
         /// <summary>
-        /// Use this to configure how to filter transparent objects.
+        /// Use this to configure how to filter opaque objects by rendering layer.
         /// </summary>
-        public RenderingLayerMask renderingLayerMask
+        public RenderingLayerMask opaqueRenderingLayerMask
         {
-            get => m_RenderingLayerMask;
+            get => m_OpaqueRenderingLayerMask;
             set
             {
                 SetDirty();
-                m_RenderingLayerMask = value;
+                m_OpaqueRenderingLayerMask = value;
             }
         }
+        
+        /// <summary>
+        /// Use this to configure how to filter transparent objects by rendering layer.
+        /// </summary>
+        public RenderingLayerMask transparentRenderingLayerMask
+        {
+            get => m_TransparentRenderingLayerMask;
+            set
+            {
+                SetDirty();
+                m_TransparentRenderingLayerMask = value;
+            }
+        }
+        
         // ys custom end
 
         /// <summary>

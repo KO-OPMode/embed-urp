@@ -230,7 +230,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             filterSettings.batchLayerMask = passData.batchLayerMask;
 
             // ys custom start - respect the renderingLayerMask we've added to UniversalRenderingData (meant for characters for now)
-            filterSettings.renderingLayerMask = renderingData.renderingLayerMask;
+            filterSettings.renderingLayerMask = m_IsOpaque ? renderingData.opaqueRenderingLayerMask : renderingData.transparentRenderingLayerMask;
             // ys custom end
 
 #if UNITY_EDITOR

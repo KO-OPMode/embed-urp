@@ -239,7 +239,8 @@ namespace UnityEngine.Rendering.Universal
         internal LayerMask opaqueLayerMask { get; set; }
         internal LayerMask transparentLayerMask { get; set; }
         // ys custom start
-        internal RenderingLayerMask renderingLayerMask { get; set; }
+        internal RenderingLayerMask opaqueRenderingLayerMask { get; set; }
+        internal RenderingLayerMask transparentRenderingLayerMask { get; set; }
         // ys custom end
         internal bool shadowTransparentReceive { get; set; }
 
@@ -310,7 +311,8 @@ namespace UnityEngine.Rendering.Universal
             opaqueLayerMask = data.opaqueLayerMask;
             transparentLayerMask = data.transparentLayerMask;
             // ys custom start
-            renderingLayerMask = data.renderingLayerMask;
+            opaqueRenderingLayerMask = data.opaqueRenderingLayerMask;
+            transparentRenderingLayerMask = data.transparentRenderingLayerMask;
             // ys custom end
             shadowTransparentReceive = data.shadowTransparentReceive;
             

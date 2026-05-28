@@ -1756,7 +1756,8 @@ namespace UnityEngine.Rendering.Universal
                 data.opaqueLayerMask = universalRenderer.opaqueLayerMask;
                 data.transparentLayerMask = universalRenderer.transparentLayerMask;
                 // ys custom start
-                data.renderingLayerMask = universalRenderer.renderingLayerMask;
+                data.opaqueRenderingLayerMask = universalRenderer.opaqueRenderingLayerMask;
+                data.transparentRenderingLayerMask = universalRenderer.transparentRenderingLayerMask;
                 // ys custom end
             }
 
