@@ -509,6 +509,7 @@ namespace UnityEngine.Rendering.Universal
         // ys custom start
         // Add global mesh LOD bias
         [SerializeField] float m_meshLodBias = 0f;
+        [SerializeField] private float m_shadowMeshLodBias = 0f;
         // ys custom end
         
         // ShEvalMode.Auto is handled in shader preprocessor.
@@ -1141,6 +1142,13 @@ namespace UnityEngine.Rendering.Universal
         /// Global bias applied to all mesh LODs
         /// </summary>
         public float meshLodBias => m_meshLodBias;
+        
+        /// <summary>
+        /// Additional global bias applied when to mesh LODs when rendering shadows
+        /// Incompatible with LOD cross fading as it causes the LODs to pop back and forth repeatedly
+        /// </summary>
+        public float shadowMeshLodBias => m_shadowMeshLodBias;
+        
         // ys custom end
         
         /// <summary>

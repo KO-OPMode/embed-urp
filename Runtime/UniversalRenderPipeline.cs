@@ -882,7 +882,7 @@ namespace UnityEngine.Rendering.Universal
 #endif
                 UniversalRenderPipeline.renderTextureUVOriginStrategy = RenderTextureUVOriginStrategy.BottomLeft;
 
-                CreateShadowAtlasAndCullShadowCasters(lightData, shadowData, cameraData, ref data.cullResults, ref context);
+                CreateShadowAtlasAndCullShadowCasters(asset, lightData, shadowData, cameraData, ref data.cullResults, ref context);
 
                 renderer.AddRenderPasses(ref legacyRenderingData);
 
@@ -928,7 +928,7 @@ namespace UnityEngine.Rendering.Universal
             ScriptableRenderer.current = null;
         }
 
-        private static void CreateShadowAtlasAndCullShadowCasters(UniversalLightData lightData, UniversalShadowData shadowData, UniversalCameraData cameraData, ref CullingResults cullResults, ref ScriptableRenderContext context)
+        private static void CreateShadowAtlasAndCullShadowCasters(UniversalRenderPipelineAsset settings, UniversalLightData lightData, UniversalShadowData shadowData, UniversalCameraData cameraData, ref CullingResults cullResults, ref ScriptableRenderContext context)
         {
             if (!shadowData.supportsMainLightShadows && !shadowData.supportsAdditionalLightShadows)
                 return;
@@ -939,7 +939,36 @@ namespace UnityEngine.Rendering.Universal
             if (shadowData.supportsAdditionalLightShadows)
                 shadowData.shadowAtlasLayout = BuildAdditionalLightsShadowAtlasLayout(lightData, shadowData, cameraData);
 
+            // ys custom start
+            // Apply custom mesh LOD shadow bias
+            bool lodBiasApplied = false;
+            float prevMeshLodBias = 0f;
+            bool prevForceDisableLodCrossFade = false;
+            if (!Mathf.Approximately(asset.shadowMeshLodBias, 0f))
+            {
+                prevMeshLodBias = CustomMeshLodSettings.GlobalMeshLodBias;
+                prevForceDisableLodCrossFade = CustomMeshLodSettings.ForceDisableCrossFade;
+
+                CustomMeshLodSettings.GlobalMeshLodBias = asset.shadowMeshLodBias;
+                
+                // We must disable LOD cross-fading for shadows, otherwise we will constantly
+                // fade between the regular and shadow LOD levels as the caching does not discriminate
+                // between the two passes
+                CustomMeshLodSettings.ForceDisableCrossFade = true;
+                
+                lodBiasApplied = true;
+            }
+            
             shadowData.visibleLightsShadowCullingInfos = ShadowCulling.CullShadowCasters(ref context, shadowData, ref shadowData.shadowAtlasLayout, ref cullResults);
+
+            if (lodBiasApplied)
+            {
+                CustomMeshLodSettings.GlobalMeshLodBias = prevMeshLodBias;
+                CustomMeshLodSettings.ForceDisableCrossFade = prevForceDisableLodCrossFade;
+            }
+            
+            
+            // ys custom end
         }
 
         /// <summary>

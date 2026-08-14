@@ -45,6 +45,7 @@ namespace UnityEditor.Rendering.Universal
             public static GUIContent lodCrossFadeDitheringTypeText = EditorGUIUtility.TrTextContent("LOD Cross Fade Dithering Type", "Controls the LOD Cross Fade Dithering Type that will be used to draw Renderer LOD when LODGroup has CrossFade Fade Mode selected.");
             // ys custom start
             public static GUIContent meshLodBiasText = EditorGUIUtility.TrTextContent("Mesh LOD Bias", "Applies a global bias to all Mesh LOD meshes.");
+            public static GUIContent shadowMeshLodBiasText = EditorGUIUtility.TrTextContent("Shadow Mesh LOD Bias", "Applies a separate global bias to all Mesh LOD meshes when rendering shadows. This value is set absolutely -- it is NOT additive with Mesh LOD Bias.");
             // ys custom end
             public static GUIContent shEvalModeText = EditorGUIUtility.TrTextContent("SH Evaluation Mode", "Defines the Spherical Harmonic (SH) lighting evaluation type (per vertex, per pixel, or mixed).");
             public static readonly string stpRequiresRenderGraph = "STP is selected but Render Graph is not enabled. STP requires Render Graph in order to function. Unity will fall back to the Automatic option.";

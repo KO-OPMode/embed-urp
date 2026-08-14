@@ -213,6 +213,7 @@ namespace UnityEditor.Rendering.Universal
             
             // ys custom start
             EditorGUILayout.PropertyField(serialized.meshLodBiasProp, Styles.meshLodBiasText);
+            EditorGUILayout.PropertyField(serialized.shadowMeshLodBiasProp, Styles.shadowMeshLodBiasText);
             // ys custom end
         }
 

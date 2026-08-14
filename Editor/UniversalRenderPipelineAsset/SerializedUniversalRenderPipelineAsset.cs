@@ -15,6 +15,7 @@ namespace UnityEditor.Rendering.Universal
         public SerializedProperty enableLODCrossFadeProp { get; }
         // ys custom start
         public SerializedProperty meshLodBiasProp { get; }
+        public SerializedProperty shadowMeshLodBiasProp { get; }
         // ys custom end
         public SerializedProperty lodCrossFadeDitheringTypeProp { get; }
         public SerializedProperty storeActionsOptimizationProperty { get; }
@@ -117,6 +118,7 @@ namespace UnityEditor.Rendering.Universal
             
             // ys custom start
             meshLodBiasProp = serializedObject.FindProperty("m_meshLodBias");
+            shadowMeshLodBiasProp = serializedObject.FindProperty("m_shadowMeshLodBias");
             // ys custom end
             
             
