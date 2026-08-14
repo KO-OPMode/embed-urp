@@ -1761,6 +1761,10 @@ namespace UnityEngine.Rendering.Universal
                 // ys custom end
             }
 
+            // ys custom start
+            CustomMeshLodSettings.GlobalMeshLodBias = settings.meshLodBias;
+            // ys custom end
+            
             data.stencilLodCrossFadeEnabled = settings.enableLODCrossFade && settings.lodCrossFadeDitheringType == LODCrossFadeDitheringType.Stencil;
 
             return data;
