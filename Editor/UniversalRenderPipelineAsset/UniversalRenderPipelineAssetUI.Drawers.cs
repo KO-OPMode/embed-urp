@@ -209,8 +209,11 @@ namespace UnityEditor.Rendering.Universal
                     EditorGUILayout.HelpBox(Styles.stencilLodCrossFadeWarningMessage.text, MessageType.Warning, true);
                 }
             }
-
             EditorGUI.EndDisabledGroup();
+            
+            // ys custom start
+            EditorGUILayout.PropertyField(serialized.meshLodBiasProp, Styles.meshLodBiasText);
+            // ys custom end
         }
 
         static void DrawUpscalingFilterDropdownAndOptions(SerializedUniversalRenderPipelineAsset serialized, Editor ownerEditor)

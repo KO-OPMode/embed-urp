@@ -505,7 +505,12 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField] bool m_EnableLODCrossFade = true;
 
         [SerializeField] LODCrossFadeDitheringType m_LODCrossFadeDitheringType = LODCrossFadeDitheringType.BlueNoise;
-
+        
+        // ys custom start
+        // Add global mesh LOD bias
+        [SerializeField] float m_meshLodBias = 0f;
+        // ys custom end
+        
         // ShEvalMode.Auto is handled in shader preprocessor.
 #if UNITY_EDITOR // multi_compile _ EVALUATE_SH_MIXED EVALUATE_SH_VERTEX
         [ShaderKeywordFilter.RemoveIf(ShEvalMode.PerPixel,  keywordNames:  new [] { ShaderKeywordStrings.EVALUATE_SH_MIXED, ShaderKeywordStrings.EVALUATE_SH_VERTEX })]
@@ -1131,6 +1136,13 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         public LODCrossFadeDitheringType lodCrossFadeDitheringType => m_LODCrossFadeDitheringType;
 
+        // ys custom start
+        /// <summary>
+        /// Global bias applied to all mesh LODs
+        /// </summary>
+        public float meshLodBias => m_meshLodBias;
+        // ys custom end
+        
         /// <summary>
         /// Returns the upscaling filter desired by the user
         /// Note: Filter selections differ from actual filters in that they may include "meta-filters" such as
